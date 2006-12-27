@@ -1,0 +1,612 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<html><head>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+<title>LPeg</title>
+</head>
+<body bgcolor="white">
+
+
+<hr>
+<h1>LPeg: a New Pattern-Matching Library for Lua</h1>
+
+<a href="#intro">Introduction</a>
+&middot;
+<a href="#basic">Basic Constructions</a>
+&middot;
+<a href="#grammar">Grammars</a>
+&middot;
+<a href="#captures">Captures</a>
+&middot;
+<a href="#ex">Some Examples</a>
+&middot;
+<a href="lpeg-0.1.tar.gz">Download</a>
+
+
+<p>
+Disclaimer: this is version 0.1!
+The purpose of this version is to present the main ideas behind
+the library.
+</p>
+
+<hr>
+
+
+<h2><a name="intro">Introduction</a></h2>
+
+<p>
+<em>LPeg</em> is a new pattern-matching library for Lua,
+based on
+<a href="http://pdos.csail.mit.edu/~baford/packrat/">
+Parsing Expression Grammars</a> (PEGs).
+I assume that readers are familiar with PEGs.
+If you are not, you can get a quick start reading
+Section 2 of
+<a href="http://pdos.csail.mit.edu/~baford/packrat/popl04/peg-popl04.pdf">
+Parsing Expression Grammars: A Recognition-Based Syntactic Foundation</a>
+(the section has only one page)
+or the
+<a href="http://en.wikipedia.org/wiki/Parsing_expression_grammar">
+Wikipedia Entry for PEGs</a>.
+The nice thing about PEGs is that it has a formal basis
+(instead of being an ad-hoc set of features),
+allows an <em>efficient and simple implementation</em>,
+and does most things we expect from a pattern-matching library
+(and more, as we can define entire grammars).
+</p>
+
+<p>
+Following the Snobol tradition,
+LPeg defines patterns as first-class objects.
+That is, patterns are regular Lua values
+(represented by userdata).
+The library offers several functions to create
+and compose patterns.
+With the use of metamethods,
+several of these functions are provided as infix or prefix
+operators.
+The result is usually much more verbose than the typical
+encoding of patterns using the so called
+<em>regular expressions</em>
+(which usually are not regular expressions in the formal sense).
+On the other hand,
+first-class patterns allow much better documentation
+(as it is easy to comment the code,
+to use auxiliary variables to break complex definitions, etc.)
+and are extensible:
+we can define in Lua new functions to create and compose patterns.
+</p>
+
+<p>
+For those not convinced by the previous arguments,
+there is also a library that implements patterns
+following a regular-expression style.
+(This library is less than 200 lines of Lua code,
+and of course uses LPeg to parse regular expressions.)
+This library is even more green than LPeg,
+and currently does not support any kind of capture.
+But it provides a good source for those looking for
+extended examples of LPeg definitions.
+</p>
+
+
+
+<h2><a name="basic">Basic Constructions</a></h2>
+
+<p>
+Most of the following operations build patterns.
+All operations that expect a pattern as an argument
+may receive also strings, tables, or numbers,
+which are translated to patterns according to
+the rules of function <a href="#lpeg"><code>lpeg.P</code></a>.
+
+
+<h3><code>lpeg.match (subject, pattern)</code></h3>
+<p>
+Main (and currently only) matching function.
+It attempts to match the given subject string to the given pattern.
+If the match succeeds,
+returns the index in the subject where the match finished,
+or the values of <a href="#captures">captured values</a>
+(if the pattern captured any value).
+</p>
+
+<p>
+Unlike typical pattern-matching functions,
+<code>match</code> works only in <em>anchored</em> mode;
+that is, it tries to match the pattern with a prefix of
+the given subject string,
+not with any substring of the subject.
+So, if we want to find a pattern anywhere in a string,
+we must either write a loop in Lua or write a pattern that
+matches anywhere.
+This second approach is easy and quite efficient;
+see <a href="#ex">examples</a>.
+</p>
+
+
+<h3><a name="lpeg"><code>lpeg.P (value)</code></a></h3>
+<p>
+Converts the given value into a proper pattern,
+according to the following rules:
+</p>
+<ul>
+
+<li><p>
+If the argument is a pattern,
+it is returned unmodified.
+</p></li>
+
+<li><p>
+If the argument is a string,
+it is translated to a pattern that matches literally the string.
+</p></li>
+
+<li><p>
+If the argument is a table,
+it is interpreted as a grammar
+(see <a href="#grammar">Grammars</a>).
+</p></li>
+
+<li><p>
+If the argument is a number,
+it is translated as follows.
+A non-negative number <em>n</em> gives a pattern that
+matches exactly <em>n</em> characters;
+a negative number <em>-n</em> gives a pattern that
+succeeds only if the input string does not have <em>n</em> characters.
+It is (as expected) equivalent to the unary minus operation (see below)
+applied over the absolute value of <em>n</em>.
+</p></li>
+
+</ul>
+
+
+
+<h3><code>lpeg.R (char1, char2)</code></h3>
+<p>
+Returns a pattern that matches any single character with
+a code between the codes of <code>char1</code> and <code>char2</code>
+(both inclusive).
+The characters are given as strings of length 1.
+</p>
+
+<p>
+As an example, the pattern
+<code>lpeg.R("0", "9")</code> matches any digit.
+</p>
+
+
+<h3><code>lpeg.S (string)</code></h3>
+<p>
+Returns a pattern that matches any single character that
+appears in the given string.
+</p>
+
+<p>
+As an example, the pattern
+<code>lpeg.S("0123456789abcdefABCDEF")</code> matches any
+hexadecimal digit.
+</p>
+
+<p>
+Note that, if <code>s</code> is a character
+(that is, a string of length 1),
+then <code>lpeg.P(s)</code> is equivalent to <code>lpeg.S(s)</code>
+which is equivalent to <code>lpeg.R(s, s)</code>.
+Note also that <code>lpeg.S("")</code> is a pattern that always fails.
+</p>
+
+
+<h3><code>#patt</code></h3>
+<p>
+Equivalent to <em>&amp;patt</em>.
+Returns a pattern that matches only if the input string
+does match <code>patt</code>,
+but without consuming any input,
+independently of success or failure.
+</p>
+
+<p>
+(Maybe the <code>#</code> should be used for optional pattern;
+it seems to be more useful, and it has no symbol for it right now.
+We must write <code>patt + ""</code>.)
+</p>
+
+
+<h3><code>-patt</code></h3>
+<p>
+Equivalent to <em>!patt</em>.
+Returns a pattern that matches only if the input string
+does not match <code>patt</code>.
+It does not consume any input,
+independently of success or failure.
+</p>
+
+<p>
+As an example, the pattern
+<code>-1</code> matches only the end of string.
+</p>
+
+
+<h3><code>patt1 + patt2</code></h3>
+<p>
+Equivalent to <em>patt1 / patt2</em>.
+Returns a pattern that matches either
+<code>patt1</code> or <code>patt2</code>
+(with no backtracking once one of them succeed).
+</p>
+
+<p>
+If both <code>patt1</code> and <code>patt2</code> are
+character sets,
+this operation is equivalent to set union:
+<pre>
+lower = lpeg.R("a", "z")
+upper = lpeg.R("A", "Z")
+letter = lower + upper
+</pre>
+
+
+<h3><code>patt1 - patt2</code></h3>
+<p>
+Equivalent to <em>!patt2 patt1</em>.
+Returns a pattern that asserts the input does not
+match <code>patt2</code> and then matches <code>patt1</code>.
+</p>
+
+<p>
+If both <code>patt1</code> and <code>patt2</code> are
+character sets,
+this operation is equivalent to set difference.
+Note that <code>-patt</code> is equivalent to <code>"" - patt</code>.
+If <code>patt</code> is a character set,
+<code>1 - patt</code> is its complement.
+</p>
+
+
+<h3><code>patt1 * patt2</code></h3>
+<p>
+Equivalent to <em>patt1 patt2</em>.
+Returns a pattern that matches <code>patt1</code> and
+then matches <code>patt2</code>
+starting where <code>patt1</code> finished.
+</p>
+
+<p>
+(We used the <code>*</code> operator both because it has
+the right priority and because in formal languages it is
+common the use of a dot to denote concatenation.)
+</p>
+
+
+<h3><code>patt^n</code></h3>
+<p>
+If <code>n</code> is nonnegative,
+this pattern is
+equivalent to <em>patt<sup>n</sup> patt*</em>.
+It returns a pattern that matches at least <code>n</code>
+occurrences of <code>patt</code>.
+</p>
+
+<p>
+Otherwise, when <code>n</code> is negative,
+this pattern is equivalent to <em>(patt?)<sup>-n</sup></em>.
+That is, it returns a pattern that matches at most <code>-n</code>
+occurrences of <code>patt</code>.
+</p>
+
+<p>
+In particular, <code>patt^0</code> is equivalent to <em>patt*</em>,
+<code>patt^1</code> is equivalent to <em>patt+</em>,
+and <code>patt^-1</code> is equivalent to <em>patt?</em>.
+</p>
+
+
+<h2><a name="grammar">Grammars</a></h2>
+
+<p>
+With the use of Lua variables,
+it is possible to define patterns incrementally,
+with each new pattern using previously defined ones.
+However, this technique does not allow the definition of
+recursive patterns.
+For recursive patterns,
+we need real grammars.
+</p>
+
+<p>
+Grammars are represented by tables,
+where each entry is a rule.
+Currently, LPeg allows only numbers as "non-terminals";
+more specifically,
+grammars must be lists (arrays),
+with rules indexed by consecutive integer keys starting from 1.
+</p>
+
+<p>
+When a table is converted to a pattern,
+the result is a pattern that matches the first rule of the table.
+</p>
+
+
+<h3><code>lpeg.V (n)</code></h3>
+<p>
+Equivalent to <em>V<sub>n</sub></em>.
+Creates a pattern that represents the n-th nonterminal
+(or variable) in a grammar.
+</p>
+
+<p>
+Because the grammar still does not exist when
+this function is evaluated,
+the result is an <em>open reference</em> to the respective rule.
+</p>
+
+<p>
+A table is <em>fixed</em> when it is converted to a grammar.
+Then every open reference created by <code>lpeg.V(n)</code>
+is corrected to refer to the n-th element of the table.
+</p>
+
+
+<h2><a name="captures">Captures</a></h2>
+
+<p>
+Captures specify what a match operation should return.
+LPeg offers three kinds of captures:
+string, position, and table.
+A string capture captures the substring of the subject
+that matches a pattern.
+A position capture captures the position in the subject
+where the capture was made.
+A table capture collects all captures of a pattern in a table,
+which becomes the only capture of the pattern.
+</p>
+
+<p>
+A capture pattern captures a value every time it succeeds.
+A pattern inside a loop generates as many values as matched by the loop.
+A capture generates a value only when it succeeds.
+A pattern like
+<code>lpeg.C(lpeg.P'a'^-1)</code>
+captures the empty string when there is no <code>'a'</code>,
+while a pattern like
+<code>lpeg.C(lpeg.P'a')^-1</code>
+does not capture any value when there is no <code>'a'</code>.
+</p>
+
+<p>
+Each capture (of any kind) may have an optional name.
+When a capture has a name,
+its name is returned by the match operation before its
+captured value.
+</p>
+
+
+<h3><code>lpeg.C (patt [, name])</code></h3>
+<p>
+Captures the substring of the subject that matches <code>patt</code>.
+If <code>patt</code> has other captures,
+their values are returned after this one.
+The captured value is a string.
+</p>
+
+<h3><code>lpeg.I ([name])</code></h3>
+<p>
+Matches the empty string and
+captures the position (or the <b>I</b>ndex)
+in the subject where the math occurs.
+The captured value is a number.
+</p>
+
+<h3><code>lpeg.T (patt [, name])</code></h3>
+<p>
+This capture creates a table and puts all captures made by
+<code>patt</code> inside this table.
+Anonymous captures are stored in successive integer keys,
+starting at 1.
+Named captures are stored with the name as the key.
+</p>
+
+<p>
+The captured value is only this table.
+The captures made by <code>patt</code> are not
+returned independently (only as table elements).
+</p>
+
+
+<h2><a name="ex">Some Examples</a></h2>
+
+<h3>Splitting a String</h3>
+<p>
+The following code splits a string using a given pattern
+<code>sep</code> as a separator:
+</p>
+<pre>
+function split (s, sep)
+  local elem = lpeg.C((1 - lpeg.P(sep))^0)
+  local p = elem * (sep * elem)^0
+  return lpeg.match(s, p)
+end
+</pre>
+<p>
+The pattern <code>elem</code> is a repetition of zero of more
+arbitrary characters as long as there is not a match against
+the separator. It also captures its result.
+The pattern <code>p</code> matches a list of elements separated
+by <code>sep</code>.
+</p>
+
+
+<h3>Searching for a Pattern</h3>
+<p>
+Because <code>match</code> works only in anchored mode,
+to find a pattern anywhere in a string,
+we must write a pattern that matches anywhere.
+</p>
+
+<p>
+Because patterns are composable,
+we can write a function that,
+given any arbitrary pattern <code>p</code>,
+returns a new pattern that searches for <code>p</code>
+anywhere in a string.
+There are several ways to do the search.
+one way is like this:
+</p>
+<pre>
+function anywhere (p)
+  return lpeg.P{
+    [1] = p + 1 * lpeg.V(1)
+  }
+end
+</pre>
+<p>
+The grammar has a straight reading:
+it matches <code>p</code> or skips one character and tries again.
+</p>
+
+<p>
+If we want to know where the pattern is in the string
+(instead of knowing only that it is there somewhere),
+we can add position captures in the pattern:
+</p>
+<pre>
+function anywhere (p)
+  return lpeg.P{
+    [1] = lpeg.I() * p * lpeg.I() + 1 * lpeg.V(1)
+  }
+end
+</pre>
+
+<p>
+Another option for the search is like this:
+</p>
+<pre>
+function anywhere (p)
+  return (1 - lpeg.P(p))^0 * lpeg.I() * p * lpeg.I()
+end
+</pre>
+<p>
+Again the pattern has a straight reading:
+skips as many characters as possible while not matching <code>p</code>,
+and then matches <code>p</code>.
+</p>
+
+<p>
+If we want to look for a pattern only at word boundaries,
+we can use to following transformer:
+</p>
+<pre>
+local wordletter = lpeg.R("A", "Z") + lpeg.R("a", "z")
+
+function atwordboundary (p)
+  return lpeg.P{
+    [1] = p + wordletter^0 * (1 - wordletter)^1 * lpeg.V(1)
+  }
+end
+</pre>
+
+
+<h3>Balanced Parentheses</h3>
+<p>
+The following pattern matches only strings with balanced parentheses:
+</p>
+<pre>
+b = lpeg.P{
+  [1] = "(" * ((1 - lpeg.S"()") + lpeg.V(1))^0 * ")"
+}
+</pre>
+<p>
+Reading the first (and only) rule of the given grammar,
+we have that a balanced string is
+an open parenthesis,
+followed by zero or more repetitions of either
+a non-parenthesis character or
+a balanced string (<code>lpeg.V(1)</code>),
+followed by a closing parenthesis.
+</p>
+
+
+<h3>Comma-Separated Values (CSV)</h3>
+<p>
+This example breaks a string into comma-separated values,
+returning all fields:
+</p>
+<pre>
+local field = '"' * lpeg.C(((lpeg.P(1) - '"') + '""')^0) * '"' +
+                    lpeg.C((1 - lpeg.S',\n"')^0)
+
+local record = field * (',' * field)^0 * (lpeg.P'\n' + -1)
+
+function csv (s)
+  return lpeg.match(s, record)
+end
+</pre>
+<p>
+A field is either a quoted field
+(and then may contain any character except an individual quote,
+which must be written as two quotes)
+or an unquoted field
+(and then cannot contain commas, newlines, or quotes).
+A record is a list of fields separated by commas,
+ending with a newline or the string end (-1).
+</p>
+
+
+<h3>Arithmetic Expressions</h3>
+<p>
+This example is a complete parser and evaluator for simple
+arithmetic expressions:
+<pre>
+-- Lexical Elements
+local Space = lpeg.S(" \n\t")^0
+local Number = lpeg.C(lpeg.R("0", "9")^1) * Space
+local FactorOp = lpeg.C(lpeg.S("+-")) * Space
+local TermOp = lpeg.C(lpeg.S("*/")) * Space
+local Open = "(" * Space
+local Close = ")" * Space
+
+-- Grammar
+local V = lpeg.V
+local Exp, Term, Factor = 1, 2, 3
+G = lpeg.P{
+  [Exp] = lpeg.T(V(Factor) * (FactorOp * V(Factor))^0);
+  [Factor] = lpeg.T(V(Term) * (TermOp * V(Term))^0);
+  [Term] = Number + Open * V(Exp) * Close;
+}
+
+G = Space * G * -1
+
+-- Evaluator
+function eval (x)
+  if type(x) == "string" then
+    return tonumber(x)
+  else
+    local op1 = eval(x[1])
+    for i = 2, #x, 2 do
+      local op = x[i]
+      local op2 = eval(x[i + 1])
+      if (op == "+") then op1 = op1 + op2
+      elseif (op == "-") then op1 = op1 - op2
+      elseif (op == "*") then op1 = op1 * op2
+      elseif (op == "/") then op1 = op1 / op2
+      end
+    end
+    return op1
+  end
+end
+
+-- Parser/Evaluator
+function evalExp (s)
+  local t = lpeg.match(s, G)
+  if not t then error("syntax error", 2) end
+  return eval(t)
+end
+
+-- small example
+print(evalExp"3 + 5*9 / (1+1) - 12")
+</pre>
+
+
+</body></html>
