@@ -2,6 +2,8 @@
 
 local m = require"lpeg"
 
+print"General tests for LPeg library"
+
 assert(m.match("aaaa", 3))
 assert(m.match("aaaa", 4))
 assert(not m.match("aaaa", 5))
@@ -9,8 +11,11 @@ assert(not m.match("aaaa", -3))
 assert(not m.match("aaaa", -4))
 assert(m.match("aaaa", -5))
 
+assert(m.match("alo", "a") == 2)
+assert(m.match("alo", "al") == 3)
+assert(not m.match("alo", "alu"))
 
-digit = m.S"0123456789"
+digit = m.S"01234567" + "8" + "9"
 upper = m.S"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 lower = m.R("a", "z")
 letter = upper + lower
@@ -29,8 +34,8 @@ assert(m.match("alo alo", word^-3 * -1))
 
 eos = m.P(-1)
 
-assert(m.match("1222a1", digit^0 * letter * digit * eos))
-assert(not m.match("1222a1", digit^0 * letter * eos))
+assert(m.match("1298a1", digit^0 * letter * digit * eos))
+assert(not m.match("1257a1", digit^0 * letter * eos))
 
 b = {
   [1] = "(" * (((1 - m.S"()") + #m.P"(" * m.V(1))^0) * ")"
@@ -72,6 +77,13 @@ assert(a[1] == "l" and a[2] == "abcd")
 a = {m.match("abcd", m.I"begin" * letter^1 * m.I"end")}
 assert(a[1] == "begin" and a[2] == 1 and a[3] == "end" and a[4] == 5)
 
+-- test for alternation optimization
+assert(m.match("abcd", m.P"ab" + "cd" + m.P"e"^1 + "x") == 3)
+assert(m.match("eeex", m.P"ab" + "cd" + m.P"e"^1 + "x") == 4)
+assert(m.match("eeex", m.P"ab" + "cd" + m.P"e"^1 + "x") == 4)
+assert(m.match("cd", m.P"ab" + "cd" + m.P"e"^1 + "x") == 3)
+assert(m.match("x", m.P"ab" + "cd" + m.P"e"^1 + "x") == 2)
+assert(m.match("zee", m.P"ab" + "cd" + m.P"e"^1 + "x" + "") == 1)
 print"+"
 
 -- test for table captures
@@ -94,6 +106,18 @@ t = m.match("alo", m.T(m.T((m.I() * letter * m.I())^1, "n")))
 assert(table.concat(t.n, ";") == "1;2;2;3;3;4")
 
 
+g = {
+  [1] = m.V(2) * m.V(3) * m.V(4);
+  [2] = m.C('a', 'x');
+  [3] = m.C('b', 'y');
+  [4] = m.C(1) * m.V(4) + m.I("end")
+}
+
+t = m.match("aabcd", m.T(g), 2)
+assert(t.x == 'a' and t.y == 'b' and t[1] == 'c' and t[2] == 'd' and
+       t[3] == nil and t['end'] == 6)
+
+
 -- test for non-pattern as arguments to pattern functions
 
 p = { ('a' * m.V(1))^-1 } * m.P'b' * { 'a' * m.V(2); m.V(1)^-1 }
@@ -103,6 +127,10 @@ assert(m.match("aaabaac", p) == 7)
 -- test for errors
 assert(not pcall(m.match, "a", { m.V(1) * 'a' }))
 assert(not pcall(m.match, string.rep("a", 10000), m.C('a')^0))
+
+
+t = m.match(string.rep("a", 10000), m.T(m.C('a')^0))
+assert(#t == 10000 and t[1] == 'a' and t[#t] == 'a')
 
 print('+')
 
@@ -152,6 +180,63 @@ end
 for _, s in ipairs{" 3 + 5*9 / (1+1) ", "3+4/2", "3+3+3-2*2+3*9/1-  8"} do
   assert(evalExp(s) == loadstring("return "..s)())
 end
+
+
+-- tests for \0
+assert(m.match("\0\1\0", m.R("\0", "\1")^1) == 4)
+assert(m.match("\0\1\0a", m.S("\0\1ab")^1) == 5)
+assert(m.match("\0\1\0a", m.P(1)^3) == 5)
+assert(not m.match("\0\1\0a", -4))
+assert(m.match("\0\1\0a", "\0\1\0a") == 5)
+
+
+-- tests for optional start position
+assert(m.match("abc", "a", 1))
+assert(m.match("abc", "b", 2))
+assert(m.match("abc", "c", 3))
+assert(not m.match("abc", 1, 4))
+assert(m.match("abc", "a", -3))
+assert(m.match("abc", "b", -2))
+assert(m.match("abc", "c", -1))
+assert(m.match("abc", "abc", -4))   -- truncate to position 1
+
+assert(m.match("abc", "", 10))   -- empty string is everywhere!
+assert(m.match("", "", 10))
+assert(not m.match("", 1, 1))
+assert(not m.match("", 1, -1))
+assert(not m.match("", 1, 0))
+
+
+-- tests for arbitrary label values
+local v1, v2, v3  = {}, print, "hello"
+t = m.match("abc", m.T(m.C(1, v1) * m.C(1, v2) * m.C(1)))
+assert(t[v1] == 'a' and t[v2] == 'b' and t[1] == 'c')
+a, b, c, d, e, f = m.match("abc", m.C(1, v1) * m.C(1, v2) * m.C(1))
+assert(a == v1 and b == "a" and c == v2 and d == "b" and e == "c" and f == nil)
+assert(t[v1] == 'a' and t[v2] == 'b' and t[1] == 'c')
+t = m.match("abc", m.T(m.C('b', v1) + m.C(2, v2) * m.C(1)))
+assert(t[v2] == 'ab' and t[1] == 'c')
+
+
+-- infinite loops
+assert(not pcall(m.match, "a", m.P""^0))
+assert(not pcall(m.match, "a", (-m.P"ab")^0))
+assert(m.match("a", m.P""^-3) == 1)
+
+-- basic tests for utf8
+-- break a UTF8 string into characters
+
+c = "君が Ελληνικά"
+
+u = m.T((m.I() * m.utf8())^0)
+
+t = (m.match(c, u))
+assert(#t == 11 and t[4] - t[1] == string.len("君が ") and
+                    t[5] - t[4] == string.len("Ε"))
+
+
+
+
 
 print"OK"
 

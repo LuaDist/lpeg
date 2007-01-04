@@ -19,13 +19,14 @@
 &middot;
 <a href="#ex">Some Examples</a>
 &middot;
-<a href="lpeg-0.1.tar.gz">Download</a>
+<a href="lpeg-0.2.tar.gz">Download</a>
 
 
 <p>
-Disclaimer: this is version 0.1!
+Disclaimer: this is version 0.2!
 The purpose of this version is to present the main ideas behind
 the library.
+Everything presented here may change without further notice.
 </p>
 
 <hr>
@@ -100,22 +101,29 @@ which are translated to patterns according to
 the rules of function <a href="#lpeg"><code>lpeg.P</code></a>.
 
 
-<h3><code>lpeg.match (subject, pattern)</code></h3>
+<h3><code>lpeg.match (subject, pattern [, init])</code></h3>
 <p>
 Main (and currently only) matching function.
 It attempts to match the given subject string to the given pattern.
 If the match succeeds,
-returns the index in the subject where the match finished,
+returns the index in the subject of the first character after the match.
 or the values of <a href="#captures">captured values</a>
 (if the pattern captured any value).
+</p>
+
+<p>
+An optional numeric argument <code>init</code> makes the match
+starts at that position in the subject string.
+As usual in Lua libraries,
+a negative value counts from the end.
 </p>
 
 <p>
 Unlike typical pattern-matching functions,
 <code>match</code> works only in <em>anchored</em> mode;
 that is, it tries to match the pattern with a prefix of
-the given subject string,
-not with any substring of the subject.
+the given subject string (at position <code>init</code>),
+not with an arbitrary substring of the subject.
 So, if we want to find a pattern anywhere in a string,
 we must either write a loop in Lua or write a pattern that
 matches anywhere.
@@ -168,6 +176,7 @@ Returns a pattern that matches any single character with
 a code between the codes of <code>char1</code> and <code>char2</code>
 (both inclusive).
 The characters are given as strings of length 1.
+(The <code>R</code> stands for <em>Range</em>.)
 </p>
 
 <p>
@@ -180,6 +189,7 @@ As an example, the pattern
 <p>
 Returns a pattern that matches any single character that
 appears in the given string.
+(The <code>S</code> stands for <em>Set</em>.)
 </p>
 
 <p>
@@ -199,24 +209,18 @@ Note also that <code>lpeg.S("")</code> is a pattern that always fails.
 
 <h3><code>#patt</code></h3>
 <p>
-Equivalent to <em>&amp;patt</em>.
-Returns a pattern that matches only if the input string
+Returns a pattern equivalent to <em>&amp;patt</em>.
+This is a pattern that matches only if the input string
 does match <code>patt</code>,
 but without consuming any input,
 independently of success or failure.
 </p>
 
-<p>
-(Maybe the <code>#</code> should be used for optional pattern;
-it seems to be more useful, and it has no symbol for it right now.
-We must write <code>patt + ""</code>.)
-</p>
-
 
 <h3><code>-patt</code></h3>
 <p>
-Equivalent to <em>!patt</em>.
-Returns a pattern that matches only if the input string
+Returns a pattern equivalent to <em>!patt</em>.
+This pattern matches only if the input string
 does not match <code>patt</code>.
 It does not consume any input,
 independently of success or failure.
@@ -230,9 +234,8 @@ As an example, the pattern
 
 <h3><code>patt1 + patt2</code></h3>
 <p>
-Equivalent to <em>patt1 / patt2</em>.
-Returns a pattern that matches either
-<code>patt1</code> or <code>patt2</code>
+Returns a pattern equivalent to <em>patt1 / patt2</em>.
+It matches either <code>patt1</code> or <code>patt2</code>
 (with no backtracking once one of them succeed).
 </p>
 
@@ -249,16 +252,17 @@ letter = lower + upper
 
 <h3><code>patt1 - patt2</code></h3>
 <p>
-Equivalent to <em>!patt2 patt1</em>.
-Returns a pattern that asserts the input does not
-match <code>patt2</code> and then matches <code>patt1</code>.
+Returns a pattern equivalent to <em>!patt2 patt1</em>.
+This pattern asserts that the input does not match
+<code>patt2</code> and then matches <code>patt1</code>.
 </p>
 
 <p>
 If both <code>patt1</code> and <code>patt2</code> are
 character sets,
 this operation is equivalent to set difference.
-Note that <code>-patt</code> is equivalent to <code>"" - patt</code>.
+Note that <code>-patt</code> is equivalent to <code>"" - patt</code>
+(or <code>0 - patt</code>).
 If <code>patt</code> is a character set,
 <code>1 - patt</code> is its complement.
 </p>
@@ -266,16 +270,16 @@ If <code>patt</code> is a character set,
 
 <h3><code>patt1 * patt2</code></h3>
 <p>
-Equivalent to <em>patt1 patt2</em>.
-Returns a pattern that matches <code>patt1</code> and
-then matches <code>patt2</code>
+Returns a pattern equivalent to <em>patt1 patt2</em>.
+It matches <code>patt1</code>,
+and then matches <code>patt2</code>
 starting where <code>patt1</code> finished.
 </p>
 
 <p>
 (We used the <code>*</code> operator both because it has
 the right priority and because in formal languages it is
-common the use of a dot to denote concatenation.)
+common to use a dot for denoting concatenation.)
 </p>
 
 
@@ -284,14 +288,13 @@ common the use of a dot to denote concatenation.)
 If <code>n</code> is nonnegative,
 this pattern is
 equivalent to <em>patt<sup>n</sup> patt*</em>.
-It returns a pattern that matches at least <code>n</code>
-occurrences of <code>patt</code>.
+It matches at least <code>n</code> occurrences of <code>patt</code>.
 </p>
 
 <p>
 Otherwise, when <code>n</code> is negative,
 this pattern is equivalent to <em>(patt?)<sup>-n</sup></em>.
-That is, it returns a pattern that matches at most <code>-n</code>
+That is, it matches at most <code>-n</code>
 occurrences of <code>patt</code>.
 </p>
 
@@ -331,8 +334,8 @@ the result is a pattern that matches the first rule of the table.
 
 <h3><code>lpeg.V (n)</code></h3>
 <p>
-Equivalent to <em>V<sub>n</sub></em>.
-Creates a pattern that represents the n-th nonterminal
+Creates a pattern equivalent to <em>V<sub>n</sub></em>.
+This pattern represents the n-th nonterminal
 (or variable) in a grammar.
 </p>
 
@@ -345,7 +348,7 @@ the result is an <em>open reference</em> to the respective rule.
 <p>
 A table is <em>fixed</em> when it is converted to a grammar.
 Then every open reference created by <code>lpeg.V(n)</code>
-is corrected to refer to the n-th element of the table.
+is corrected to refer to the n-th rule of the table.
 </p>
 
 
@@ -355,11 +358,11 @@ is corrected to refer to the n-th element of the table.
 Captures specify what a match operation should return.
 LPeg offers three kinds of captures:
 string, position, and table.
-A string capture captures the substring of the subject
+A <em>string capture</em> captures the substring of the subject
 that matches a pattern.
-A position capture captures the position in the subject
+A <em>position capture</em> captures the position in the subject
 where the capture was made.
-A table capture collects all captures of a pattern in a table,
+A <em>table capture</em> collects all captures of a pattern in a table,
 which becomes the only capture of the pattern.
 </p>
 
@@ -376,14 +379,15 @@ does not capture any value when there is no <code>'a'</code>.
 </p>
 
 <p>
-Each capture (of any kind) may have an optional name.
-When a capture has a name,
-its name is returned by the match operation before its
+Each capture (of any kind) may have an optional label,
+which may be any Lua value (except <code>nil</code>).
+When a capture has a label,
+its label is returned by the match operation before its
 captured value.
 </p>
 
 
-<h3><code>lpeg.C (patt [, name])</code></h3>
+<h3><code>lpeg.C (patt [, label])</code></h3>
 <p>
 Captures the substring of the subject that matches <code>patt</code>.
 If <code>patt</code> has other captures,
@@ -391,21 +395,21 @@ their values are returned after this one.
 The captured value is a string.
 </p>
 
-<h3><code>lpeg.I ([name])</code></h3>
+<h3><code>lpeg.I ([label])</code></h3>
 <p>
 Matches the empty string and
 captures the position (or the <b>I</b>ndex)
-in the subject where the math occurs.
+in the subject where the match occurs.
 The captured value is a number.
 </p>
 
-<h3><code>lpeg.T (patt [, name])</code></h3>
+<h3><code>lpeg.T (patt [, label])</code></h3>
 <p>
 This capture creates a table and puts all captures made by
 <code>patt</code> inside this table.
 Anonymous captures are stored in successive integer keys,
 starting at 1.
-Named captures are stored with the name as the key.
+Labeled captures are stored with the label as the key.
 </p>
 
 <p>
@@ -436,6 +440,21 @@ the separator. It also captures its result.
 The pattern <code>p</code> matches a list of elements separated
 by <code>sep</code>.
 </p>
+
+<p>
+If the split results in too many values,
+it may overflow the maximum number of values
+that can be returned by a Lua function.
+In this case,
+we should collect these values in a table:
+</p>
+<pre>
+function split (s, sep)
+  local elem = lpeg.C((1 - lpeg.P(sep))^0)
+  local p = lpeg.T(elem * (sep * elem)^0)  -- make a table capture
+  return lpeg.match(s, p)
+end
+</pre>
 
 
 <h3>Searching for a Pattern</h3>
@@ -472,9 +491,10 @@ If we want to know where the pattern is in the string
 we can add position captures in the pattern:
 </p>
 <pre>
+local I = lpeg.I()
 function anywhere (p)
   return lpeg.P{
-    [1] = lpeg.I() * p * lpeg.I() + 1 * lpeg.V(1)
+    [1] = I * p * I + 1 * lpeg.V(1)
   }
 end
 </pre>
@@ -483,19 +503,20 @@ end
 Another option for the search is like this:
 </p>
 <pre>
+local I = lpeg.I()
 function anywhere (p)
-  return (1 - lpeg.P(p))^0 * lpeg.I() * p * lpeg.I()
+  return (1 - lpeg.P(p))^0 * I * p * I
 end
 </pre>
 <p>
 Again the pattern has a straight reading:
-skips as many characters as possible while not matching <code>p</code>,
-and then matches <code>p</code>.
+it skips as many characters as possible while not matching <code>p</code>,
+and then matches <code>p</code> (plus appropriate captures).
 </p>
 
 <p>
 If we want to look for a pattern only at word boundaries,
-we can use to following transformer:
+we can use the following transformer:
 </p>
 <pre>
 local wordletter = lpeg.R("A", "Z") + lpeg.R("a", "z")
@@ -561,7 +582,7 @@ arithmetic expressions:
 <pre>
 -- Lexical Elements
 local Space = lpeg.S(" \n\t")^0
-local Number = lpeg.C(lpeg.R("0", "9")^1) * Space
+local Number = lpeg.C(lpeg.P"-"^-1 * lpeg.R("0", "9")^1) * Space
 local FactorOp = lpeg.C(lpeg.S("+-")) * Space
 local TermOp = lpeg.C(lpeg.S("*/")) * Space
 local Open = "(" * Space

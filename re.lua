@@ -94,7 +94,7 @@ local function sequence (t)
   return p
 end
 
-local function expression (t)
+function expression (t)
   local p = sequence(t[1])
   for i = 2, #t do
     p = p + sequence(t[i])
