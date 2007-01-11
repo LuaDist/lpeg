@@ -19,11 +19,11 @@
 &middot;
 <a href="#ex">Some Examples</a>
 &middot;
-<a href="lpeg-0.2.tar.gz">Download</a>
+<a href="lpeg-0.3.tar.gz">Download</a>
 
 
 <p>
-Disclaimer: this is version 0.2!
+Disclaimer: this is version 0.3!
 The purpose of this version is to present the main ideas behind
 the library.
 Everything presented here may change without further notice.
@@ -84,7 +84,7 @@ following a regular-expression style.
 (This library is less than 200 lines of Lua code,
 and of course uses LPeg to parse regular expressions.)
 This library is even more green than LPeg,
-and currently does not support any kind of capture.
+and currently supports only very basic captures.
 But it provides a good source for those looking for
 extended examples of LPeg definitions.
 </p>
@@ -204,6 +204,29 @@ Note that, if <code>s</code> is a character
 then <code>lpeg.P(s)</code> is equivalent to <code>lpeg.S(s)</code>
 which is equivalent to <code>lpeg.R(s, s)</code>.
 Note also that <code>lpeg.S("")</code> is a pattern that always fails.
+</p>
+
+
+<h3><code>lpeg.F (function)</code></h3>
+<p>
+Returns a pattern that matches according to the given function.
+Each time there is an attempt for a match against this pattern,
+<code>function</code> is called,
+always with two arguments:
+the original subject string,
+and the current position in the subject.
+If <code>function</code> returns a <em>valid</em> number,
+the match succeeds
+and the returned number becomes the new current position.
+If <code>function</code> returns <b>false</b> or <b>nil</b> or
+an invalid number,
+the match fails.
+</p>
+
+<p>
+If the function is called with parameters <em>s</em> and <em>i</em>,
+its result is valid if
+<em>i &lt;= result &lt;= len(s) + 1</em>.
 </p>
 
 
@@ -355,56 +378,99 @@ is corrected to refer to the n-th rule of the table.
 <h2><a name="captures">Captures</a></h2>
 
 <p>
-Captures specify what a match operation should return.
-LPeg offers three kinds of captures:
-string, position, and table.
-A <em>string capture</em> captures the substring of the subject
-that matches a pattern.
-A <em>position capture</em> captures the position in the subject
-where the capture was made.
-A <em>table capture</em> collects all captures of a pattern in a table,
-which becomes the only capture of the pattern.
+Captures specify what a match operation should return
+(the so called <em>semantic information</em>).
+LPeg offers several kinds of captures,
+which build values based on matches and combine them to
+create new values.
 </p>
 
 <p>
 A capture pattern captures a value every time it succeeds.
-A pattern inside a loop generates as many values as matched by the loop.
+A capture inside a loop generates as many values as matched by the loop.
 A capture generates a value only when it succeeds.
 A pattern like
 <code>lpeg.C(lpeg.P'a'^-1)</code>
-captures the empty string when there is no <code>'a'</code>,
+captures the empty string when there is no <code>'a'</code>
+(because the pattern <code>'a'?</code> succeeds),
 while a pattern like
 <code>lpeg.C(lpeg.P'a')^-1</code>
-does not capture any value when there is no <code>'a'</code>.
+does not capture any value when there is no <code>'a'</code>
+(because the pattern <code>'a'</code> fails).
 </p>
 
 <p>
-Each capture (of any kind) may have an optional label,
-which may be any Lua value (except <code>nil</code>).
+Some captures may have an optional label,
+which can be any Lua value (except <code>nil</code>).
 When a capture has a label,
 its label is returned by the match operation before its
 captured value.
+<em>(There is a good chance that this feature will be removed
+from future versions!!)</em>
 </p>
 
 
 <h3><code>lpeg.C (patt [, label])</code></h3>
 <p>
-Captures the substring of the subject that matches <code>patt</code>.
-If <code>patt</code> has other captures,
+Creates a <em>simple capture</em>,
+which captures the substring of the subject that matches <code>patt</code>.
+If <code>patt</code> has other string or position captures,
 their values are returned after this one.
 The captured value is a string.
 </p>
 
-<h3><code>lpeg.I ([label])</code></h3>
+
+<h3><code>lpeg.Ca (patt)</code></h3>
 <p>
-Matches the empty string and
-captures the position (or the <b>I</b>ndex)
-in the subject where the match occurs.
+Creates an <em>accumulator capture</em>.
+This capture assumes that <code>patt</code> should produce
+at least one captured value of any kind,
+which becomes the initial value of an <em>accumulator</em>.
+Pattern <code>patt</code> then may produce
+zero or more <em>function captures</em>.
+Each of these functions in these captures is called having the
+accumulator as its first argument
+(followed by any other arguments provided by its own pattern),
+and the value returned by the function becomes the new value
+of the accumulator.
+The final value of this accumulator is the sole result of
+the whole capture.
+</p>
+
+
+<h3><code>lpeg.Cc (value)</code></h3>
+<p>
+Creates a <em>constant capture</em>.
+This pattern matches the empty string and
+produces <code>value</code> as a captured value.
+</p>
+
+
+<h3><code>lpeg.Cs (patt)</code></h3>
+<p>
+Creates a <em>substitution capture</em>,
+which captures the substring of the subject that matches <code>patt</code>,
+with <em>substitutions</em>.
+For any capture inside <code>patt</code>,
+the substring that matched the capture is replaced by the capture value
+(which should be a string).
+The capture values from <code>patt</code> are not returned independently
+(only as substrings in the resulting string).
+</p>
+
+
+<h3><code>lpeg.Cp ([label])</code></h3>
+<p>
+Creates a <em>position capture</em>.
+It matches the empty string and
+captures the position in the subject where the match occurs.
 The captured value is a number.
 </p>
 
-<h3><code>lpeg.T (patt [, label])</code></h3>
+
+<h3><code>lpeg.Ct (patt [, label])</code></h3>
 <p>
+Creates a <em>table capture</em>.
 This capture creates a table and puts all captures made by
 <code>patt</code> inside this table.
 Anonymous captures are stored in successive integer keys,
@@ -419,6 +485,58 @@ returned independently (only as table elements).
 </p>
 
 
+<h3><code>patt / function</code></h3>
+<p>
+Creates a <em>function capture</em>.
+It calls the given function passing all captures made by
+<code>patt</code> as arguments,
+or the whole match if <code>patt</code> made no capture.
+The value returned by the function
+is the final value of the capture.
+</p>
+
+<p>
+If <code>function</code> returns <code>nil</code> (or no value),
+there is no captured value.
+Everything works as if there was no capture.
+</p>
+
+
+<h3><code>patt / string</code></h3>
+<p>
+Creates a <em>string capture</em>.
+It creates a capture string based on <code>string</code>.
+The captured value is a copy of <code>string</code>,
+except that the character <code>%</code> works as an escape character:
+any sequence in <code>repl</code> of the form <code>%<em>n</em></code>,
+with <em>n</em> between 1 and 9,
+stands for the match of the <em>n</em>-th capture in <code>patt</code>.
+(Note that it uses the match, not the capture value.
+We strongly recommend that <code>patt</code> contains only
+single string captures,
+wherein the match and capture value are the same.)
+The sequence <code>%0</code> stands for the whole match.
+The sequence <code>%%</code> stands for a single&nbsp;<code>%</code>.
+
+
+<h3><code>patt / table</code></h3>
+<p>
+Creates a <em>query capture</em>.
+It indexes the given table using as key the value of the first capture
+of <code>patt</code>,
+or the whole match if <code>patt</code> made no capture.
+The value at that index is the final value of the capture.
+</p>
+
+<p>
+If the table does not have that key,
+there is no captured value.
+Everything works as if there was no capture.
+</p>
+
+
+
+
 <h2><a name="ex">Some Examples</a></h2>
 
 <h3>Splitting a String</h3>
@@ -428,12 +546,14 @@ The following code splits a string using a given pattern
 </p>
 <pre>
 function split (s, sep)
-  local elem = lpeg.C((1 - lpeg.P(sep))^0)
+  sep = lpeg.P(sep)
+  local elem = lpeg.C((1 - sep)^0)
   local p = elem * (sep * elem)^0
   return lpeg.match(s, p)
 end
 </pre>
 <p>
+First the function ensures that <code>sep</code> is a proper pattern.
 The pattern <code>elem</code> is a repetition of zero of more
 arbitrary characters as long as there is not a match against
 the separator. It also captures its result.
@@ -450,8 +570,9 @@ we should collect these values in a table:
 </p>
 <pre>
 function split (s, sep)
-  local elem = lpeg.C((1 - lpeg.P(sep))^0)
-  local p = lpeg.T(elem * (sep * elem)^0)  -- make a table capture
+  sep = lpeg.P(sep)
+  local elem = lpeg.C((1 - sep)^0)
+  local p = lpeg.Ct(elem * (sep * elem)^0)   -- make a table capture
   return lpeg.match(s, p)
 end
 </pre>
@@ -459,8 +580,8 @@ end
 
 <h3>Searching for a Pattern</h3>
 <p>
-Because <code>match</code> works only in anchored mode,
-to find a pattern anywhere in a string,
+The primitive <code>match</code> works only in anchored mode.
+If we want to find a pattern anywhere in a string,
 we must write a pattern that matches anywhere.
 </p>
 
@@ -491,7 +612,7 @@ If we want to know where the pattern is in the string
 we can add position captures in the pattern:
 </p>
 <pre>
-local I = lpeg.I()
+local I = lpeg.Cp()
 function anywhere (p)
   return lpeg.P{
     [1] = I * p * I + 1 * lpeg.V(1)
@@ -503,7 +624,7 @@ end
 Another option for the search is like this:
 </p>
 <pre>
-local I = lpeg.I()
+local I = lpeg.Cp()
 function anywhere (p)
   return (1 - lpeg.P(p))^0 * I * p * I
 end
@@ -549,13 +670,34 @@ followed by a closing parenthesis.
 </p>
 
 
+<h3>Global Substitution</h3>
+<p>
+The next example does a job somewhat similar to <code>string.gsub</code>.
+It receives a pattern and a replacement value,
+and substitutes the replacement value for all occurrences of the pattern
+in a given string:
+</p>
+<pre>
+function gsub (s, patt, repl)
+  patt = lpeg.P(patt)
+  patt = lpeg.Cs((patt / repl + 1)^0)
+  return lpeg.match(s, patt)
+end
+</pre>
+<p>
+As in <code>string.gsub</code>,
+the replacement value can be a string,
+a function, or a table.
+</p>
+
+
 <h3>Comma-Separated Values (CSV)</h3>
 <p>
 This example breaks a string into comma-separated values,
 returning all fields:
 </p>
 <pre>
-local field = '"' * lpeg.C(((lpeg.P(1) - '"') + '""')^0) * '"' +
+local field = '"' * lpeg.Cs(((lpeg.P(1) - '"') + lpeg.P'""' / '"')^0) * '"' +
                     lpeg.C((1 - lpeg.S',\n"')^0)
 
 local record = field * (',' * field)^0 * (lpeg.P'\n' + -1)
@@ -567,7 +709,7 @@ end
 <p>
 A field is either a quoted field
 (and then may contain any character except an individual quote,
-which must be written as two quotes)
+which may be written as two quotes that are replaced by one quote)
 or an unquoted field
 (and then cannot contain commas, newlines, or quotes).
 A record is a list of fields separated by commas,
@@ -575,10 +717,75 @@ ending with a newline or the string end (-1).
 </p>
 
 
+<h3>Lua's Long Strings</h3>
+<p>
+This example matches long strings in Lua.
+We could not come up with a "pure" PEG grammar that matches that syntax,
+so we resort to Lua.
+First, we define a function that creates pairs of related patterns:
+the first one matches a given pattern,
+and the second one matches only the same string matched by the first:
+</p>
+<pre>
+function backwardref (patt)
+  local b         -- string matched by first function
+  local l = 0     -- its length
+  patt = lpeg.P(patt)   -- ensure 'patt' is a pattern
+
+  -- First function
+  local pre = function (s, i)     
+    local e = lpeg.match(s, patt, i)   -- matches against 'patt'
+    if not e then return nil end
+    b = string.sub(s, i, e - 1)
+    l = e - i;
+    return e;
+  end
+
+  -- Second function
+  local pos = function (s, i)
+    s = string.sub(s, i, i + l - 1)
+    return s == b and i + l            
+  end
+
+  return lpeg.F(pre), lpeg.F(pos)
+end
+</pre>
+
+<p>
+Now, we can use the previous function to ensure that both the open
+and close delimiters match the same number of equal signs:
+</p>
+<pre>
+local p1, p2 = backwardref(lpeg.P"="^0)
+
+local open = '[' * p1 * '['
+local close = ']' * p2 * ']'
+comment = open  * (1 - close)^0 * close
+</pre>
+
+<p>
+Lua-function patterns are not very efficient.
+So, it may be worth the use of an and predicate
+to pre-analyze the subject before calling Lua:
+</p>
+<pre>
+local equals = lpeg.P"="^0
+local p1, p2 = backwardref(equals)
+
+local open = '[' * #(equals * '[') * p1 * '['
+local close = ']' * #(equals * ']') * p2 * ']'
+comment = open  * (1 - close)^0 * close
+</pre>
+
+
 <h3>Arithmetic Expressions</h3>
 <p>
 This example is a complete parser and evaluator for simple
-arithmetic expressions:
+arithmetic expressions.
+We write it in two styles.
+The first approach first builds a syntax tree and then
+traverses this tree to compute the expression value:
+</p>
 <pre>
 -- Lexical Elements
 local Space = lpeg.S(" \n\t")^0
@@ -592,8 +799,8 @@ local Close = ")" * Space
 local V = lpeg.V
 local Exp, Term, Factor = 1, 2, 3
 G = lpeg.P{
-  [Exp] = lpeg.T(V(Factor) * (FactorOp * V(Factor))^0);
-  [Factor] = lpeg.T(V(Term) * (TermOp * V(Term))^0);
+  [Exp] = lpeg.Ct(V(Factor) * (FactorOp * V(Factor))^0);
+  [Factor] = lpeg.Ct(V(Term) * (TermOp * V(Term))^0);
   [Term] = Number + Open * V(Exp) * Close;
 }
 
@@ -628,6 +835,40 @@ end
 -- small example
 print(evalExp"3 + 5*9 / (1+1) - 12")
 </pre>
+
+<p>
+The second style computes the expression value on the fly,
+without building the syntax tree.
+The following grammar takes this approach.
+(It assumes the same lexical elements as before.)
+</p>
+<pre>
+-- Auxiliary function
+function eval (v1, op, v2)
+  if (op == "+") then return v1 + v2
+  elseif (op == "-") then return v1 - v2
+  elseif (op == "*") then return v1 * v2
+  elseif (op == "/") then return v1 / v2
+  end
+end
+
+-- Grammar
+local V = lpeg.V
+local Exp, Term, Factor = 1, 2, 3
+G = lpeg.P{
+  [Exp] = lpeg.Ca(V(Factor) * (FactorOp * V(Factor) / eval)^0);
+  [Factor] = lpeg.Ca(V(Term) * (TermOp * V(Term) / eval)^0);
+  [Term] = Number / tonumber + Open * V(Exp) * Close;
+}
+</pre>
+<p>
+Note the use of the accumulator capture.
+To compute the value of an expression,
+the accumulator starts with the value of the first factor,
+and then applies <code>eval</code> over
+the accumulator, the operator,
+and the new factor for each repetition.
+</p>
 
 
 </body></html>

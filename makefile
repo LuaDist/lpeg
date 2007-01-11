@@ -1,15 +1,15 @@
-CWARNS = -Wall -W -pedantic \
+CWARNS = -Wall -Wextra -pedantic \
         -Waggregate-return \
         -Wcast-align \
         -Wmissing-prototypes \
         -Wnested-externs \
         -Wpointer-arith \
         -Wshadow \
-        -Wwrite-strings
-#       -Wcast-qual
-#       -Wtraditional
+        -Wwrite-strings \
+        -Wcast-qual
 
 COPT = -O2 -DNDEBUG
+# COPT = -g
 CFLAGS = $(CWARNS) -ansi $(COPT) -I../lua
 CC = gcc
 
