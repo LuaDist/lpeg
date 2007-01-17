@@ -1,11 +1,8 @@
 local m = require"lpeg"
 local _G = _G
-local concat = table.concat
+local mt = getmetatable(m.P(0))
 
 module "re"
-
-local function union (a,b) return a+b end
-local function concat (a,b) return a*b end
 
 local Char = ("%" * m.C(1)) / "%1" + m.C(1)
 local S = m.S(" \t")^0
@@ -13,31 +10,34 @@ local S = m.S(" \t")^0
 local Literal = "'" * m.Cs((Char - "'")^0) / m.P * "'" +
                 '"' * m.Cs((Char - '"')^0) / m.P * '"'
 
-local Interval = (Char * "-" * Char) / m.R
+local Interval = m.Cs(Char * (m.P"-"/"") * Char) / m.R
 
 local Class = "[" *
-           m.Ca(m.Cc(m.S"") * ((Interval + Char) / union - "]")^0) *
+           m.Ca(m.Cc(m.S"") * ((Interval + Char) / mt.__add - "]")^0) *
               "]"
 
 
 local Exp, Seq, Prefix, Sufix, Primary = 1, 2, 3, 4, 5
 local g = m.P{
-  [Exp] = m.Ca(m.V(Seq) * ("/" * S * m.V(Seq) / union)^0);
-  [Seq] = m.Ca(m.Cc(m.P"") * (m.V(Prefix) / concat)^0);
-  [Prefix] = "&" * S * m.V(Sufix) / function (p) return #p end
-           + "!" * S * m.V(Sufix) / function (p) return -p end
+  [Exp] = m.Ca(m.V(Seq) * ("/" * S * m.V(Seq) / mt.__add)^0);
+  [Seq] = m.Ca(m.Cc(m.P"") * (m.V(Prefix) / mt.__mul)^0);
+  [Prefix] = "&" * S * m.V(Sufix) / mt.__len
+           + "!" * S * m.V(Sufix) / mt.__unm
            + m.V(Sufix);
   [Sufix] = m.Ca(m.V(Primary) *
-            ( m.P"+" / function (p) return p^1 end
-            + m.P"*" / function (p) return p^0 end
-            + m.P"?" / function (p) return p^-1 end
-            + "" )) * S;
-  [Primary] = ("(" * S * m.V(Exp) * ")"
-            + m.P"{}" / function () return m.Cp() end
+            ( m.P"+" * m.Cc(1) / mt.__pow    -- primary^1
+            + m.P"*" * m.Cc(0) / mt.__pow    -- primary^0
+            + m.P"?" * m.Cc(-1) / mt.__pow   -- primary^-1
+            + ""
+            ) ) * S;
+  [Primary] =
+            ( "(" * S * m.V(Exp) * ")"
+            + m.P"{}" / m.Cp
             + "{" * S * m.V(Exp) * "}" / m.C
             + Literal
             + Class
-            + m.P"." / function () return m.P(1) end) * S;
+            + m.P"." * m.Cc(1) / m.P     -- m.P(1)
+            ) * S;
 }
 
 g = S * g * -1
@@ -49,7 +49,7 @@ _G.setmetatable(mem, {__mode = "v"})
 function compile (p)
   local cp = mem[p]
   if not cp then
-    cp = m.match(p, g)
+    cp = g:match(p)
     if not cp then _G.error("incorrect pattern", 3) end
     mem[p] = cp
   end
@@ -57,7 +57,7 @@ function compile (p)
 end
 
 function match (s, p)
-  return m.match(s, compile(p))
+  return compile(p):match(s)
 end
 
 function test ()   -- basic tests

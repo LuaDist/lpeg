@@ -16,3 +16,5 @@ CC = gcc
 lpeg.so: lpeg.c
 	$(CC) $(CFLAGS) -shared -o lpeg.so lpeg.c
 
+test: test.lua lpeg.so
+	test.lua
