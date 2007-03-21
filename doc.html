@@ -19,13 +19,9 @@
 &middot;
 <a href="#ex">Some Examples</a>
 &middot;
-<a href="lpeg-0.4.tar.gz">Download</a>
-
-
-<p>
-Disclaimer: this is version 0.4!
-Everything presented here may change without further notice.
-</p>
+<a href="lpeg-0.5.tar.gz">Download</a>
+&middot;
+<a href="#license">License</a>
 
 <hr>
 
@@ -37,15 +33,17 @@ Everything presented here may change without further notice.
 based on
 <a href="http://pdos.csail.mit.edu/~baford/packrat/">
 Parsing Expression Grammars</a> (PEGs).
-I assume that readers are familiar with PEGs.
-If you are not, you can get a quick start reading
-Section 2 of
+I assume you are familiar with PEGs,
+although probably you are not.
+(I only heard about PEGs a few months ago.)
+Anyway, you can get a quick start reading
+the
+<a href="http://en.wikipedia.org/wiki/Parsing_expression_grammar">
+Wikipedia Entry for PEGs</a>
+or Section 2 of
 <a href="http://pdos.csail.mit.edu/~baford/packrat/popl04/peg-popl04.pdf">
 Parsing Expression Grammars: A Recognition-Based Syntactic Foundation</a>
-(the section has only one page)
-or the
-<a href="http://en.wikipedia.org/wiki/Parsing_expression_grammar">
-Wikipedia Entry for PEGs</a>.
+(the section has only one page).
 The nice thing about PEGs is that it has a formal basis
 (instead of being an ad-hoc set of features),
 allows an <em>efficient and simple implementation</em>,
@@ -63,24 +61,66 @@ and compose patterns.
 With the use of metamethods,
 several of these functions are provided as infix or prefix
 operators.
-The result is usually much more verbose than the typical
+On the one hand,
+the result is usually much more verbose than the typical
 encoding of patterns using the so called
 <em>regular expressions</em>
-(which usually are not regular expressions in the formal sense).
+(which typically are not regular expressions in the formal sense).
 On the other hand,
 first-class patterns allow much better documentation
 (as it is easy to comment the code,
 to use auxiliary variables to break complex definitions, etc.)
-and are extensible:
-we can define in Lua new functions to create and compose patterns.
+and are extensible,
+as we can define new functions to create and compose patterns.
 </p>
 
 <p>
-For those not convinced by the previous arguments,
+For a quick glance of the library,
+the following table summarizes its basic operations
+for creating patterns:
+</p>
+<table border="1">
+<tr><td><b>Operator</b></td><td><b>Description</b></td></tr>
+<tr><td><code>lpeg.P(string)</code></td>
+  <td>Matches <code>string</code> literally</td></tr>
+<tr><td><code>lpeg.P(number)</code></td>
+  <td>Matches exactly <code>number</code> characters</td></tr>
+<tr><td><code>lpeg.S(string)</code></td>
+  <td>Matches any character in <code>string</code> (set)</td></tr>
+<tr><td><code>lpeg.R("<em>xy</em>")</code></td>
+  <td>Matches any character between <em>x</em> and <em>y</em> (range)</td></tr>
+<tr><td><code>patt^n</code></td>
+  <td>Matches at least <code>n</code> repetitions of <code>patt</code></td></tr>
+<tr><td><code>patt^-n</code></td>
+  <td>Matches at most <code>n</code> repetitions of <code>patt</code></td></tr>
+<tr><td><code>patt1 * patt2</code></td>
+  <td>Matches <code>patt1</code> followed by <code>patt2</code></td></tr>
+<tr><td><code>patt1 + patt2</code></td>
+  <td>Matches <code>patt1</code> or <code>patt2</code>
+      (ordered choice)</td></tr>
+<tr><td><code>patt1 - patt2</code></td>
+  <td>Matches <code>patt1</code> if <code>patt2</code> does not match</td></tr>
+<tr><td><code>-patt</code></td>
+  <td>Equivalent to <code>"" - patt</code></td></tr>
+</table>
+
+<p>As a very simple example, <code>lpeg.R("09")^1</code> matches
+a non-empty sequence of digits.
+As a not so simple example,
+<code>-lpeg.P(1)</code>
+(which can be written as <code>lpeg.P(-1)</code>
+or simply <code>-1</code> for operations expecting a pattern)
+matches an empty string only if it cannot match a single character;
+so, it succeeds only at the subject's end.
+</p>
+
+<p>
+For those not convinced by the previous syntax,
 there is also a library that implements patterns
-following a regular-expression style.
+following a regular-expression style (e.g., <code>[09]+</code>).
 (This library is less than 90 lines of Lua code,
-and of course uses LPeg to parse regular expressions.)
+and of course uses LPeg to parse regular expressions.
+See file <code>re.lua</code> in the distribution.)
 This library currently supports only very basic captures.
 But it provides a good source for those looking for
 extended examples of LPeg definitions.
@@ -93,14 +133,15 @@ extended examples of LPeg definitions.
 <p>
 Most of the following operations build patterns.
 All operations that expect a pattern as an argument
-may receive also strings, tables, numbers, or functions,
+may receive also strings, tables, numbers, booleans, or functions,
 which are translated to patterns according to
 the rules of function <a href="#lpeg"><code>lpeg.P</code></a>.
+</p>
 
 
 <h3><code>lpeg.match (pattern, subject [, init])</code></h3>
 <p>
-Main (and currently only) matching function.
+The matching function.
 It attempts to match the given pattern against the subject string.
 If the match succeeds,
 returns the index in the subject of the first character after the match,
@@ -147,12 +188,6 @@ it is translated to a pattern that matches literally the string.
 </p></li>
 
 <li><p>
-If the argument is a table,
-it is interpreted as a grammar
-(see <a href="#grammar">Grammars</a>).
-</p></li>
-
-<li><p>
 If the argument is a number,
 it is translated as follows.
 A non-negative number <em>n</em> gives a pattern that
@@ -161,6 +196,19 @@ a negative number <em>-n</em> gives a pattern that
 succeeds only if the input string does not have <em>n</em> characters.
 It is (as expected) equivalent to the unary minus operation (see below)
 applied over the absolute value of <em>n</em>.
+</p></li>
+
+<li><p>
+If the argument is a boolean,
+the result is a pattern that always succeeds or always fails
+(according to the boolean value),
+without consuming any input.
+</p></li>
+
+<li><p>
+If the argument is a table,
+it is interpreted as a grammar
+(see <a href="#grammar">Grammars</a>).
 </p></li>
 
 <li><p>
@@ -196,13 +244,12 @@ Each <code>range</code> is a string <em>xy</em> of length 2,
 representing all characters with code
 between the codes of <em>x</em> and <em>y</em>
 (both inclusive).
-(The <code>R</code> stands for <em>Range</em>.)
 </p>
 
 <p>
 As an example, the pattern
 <code>lpeg.R("09")</code> matches any digit,
-and <code>lpeg.R("az", "AZ")</code> matches any ascii letter.
+and <code>lpeg.R("az", "AZ")</code> matches any ASCII letter.
 </p>
 
 
@@ -215,8 +262,7 @@ appears in the given string.
 
 <p>
 As an example, the pattern
-<code>lpeg.S("0123456789abcdefABCDEF")</code> matches any
-hexadecimal digit.
+<code>lpeg.S("+-*/")</code> matches any arithmetic operator.
 </p>
 
 <p>
@@ -229,10 +275,17 @@ are patterns that always fail.
 </p>
 
 
+<h3><code>lpeg.V (n)</code></h3>
+<p>
+This operation creates a non-terminal for a grammar.
+(See <a href="#grammar">Grammars</a> for details.)
+</p>
+
 
 <h3><code>#patt</code></h3>
 <p>
-Returns a pattern equivalent to <em>&amp;patt</em>.
+Returns a pattern equivalent to <em>&amp;patt</em> in the original
+PEG notation.
 This is a pattern that matches only if the input string
 does match <code>patt</code>,
 but without consuming any input,
@@ -242,7 +295,8 @@ independently of success or failure.
 
 <h3><code>-patt</code></h3>
 <p>
-Returns a pattern equivalent to <em>!patt</em>.
+Returns a pattern equivalent to <em>!patt</em> in the original
+PEG notation.
 This pattern matches only if the input string
 does not match <code>patt</code>.
 It does not consume any input,
@@ -257,12 +311,15 @@ As an example, the pattern
 
 <h3><code>patt1 + patt2</code></h3>
 <p>
-Returns a pattern equivalent to a <em>prioritized choice</em>
+Returns a pattern equivalent to an <em>ordered choice</em>
 of <code>patt1</code> and <code>patt2</code>.
-(This is denoted by <em>patt1 / patt2</em> in original PEG,
-not to be confused with the <code>/</code> operation in Lpeg.)
+(This is denoted by <em>patt1 / patt2</em> in the original PEG notation,
+not to be confused with the <code>/</code> operation in LPeg.)
 It matches either <code>patt1</code> or <code>patt2</code>
-(with no backtracking once one of them succeed).
+(with no backtracking once one of them succeeds).
+The identity element for this operation is the pattern
+<code>lpeg.P(false)</code>,
+which always fails.
 </p>
 
 <p>
@@ -297,14 +354,18 @@ If <code>patt</code> is a character set,
 
 <h3><code>patt1 * patt2</code></h3>
 <p>
-Returns a pattern equivalent to <em>patt1 patt2</em>.
-It matches <code>patt1</code>,
-and then matches <code>patt2</code>
+Returns a pattern that matches <code>patt1</code>
+and then matches <code>patt2</code>,
 starting where <code>patt1</code> finished.
+The identity element for this operation is the
+pattern <code>lpeg.P(true)</code>,
+which always succeeds.
 </p>
 
 <p>
-(We used the <code>*</code> operator both because it has
+(LPeg uses the <code>*</code> operator
+[instead of the more obvious <code>..</code>]
+both because it has
 the right priority and because in formal languages it is
 common to use a dot for denoting concatenation.)
 </p>
@@ -328,8 +389,17 @@ occurrences of <code>patt</code>.
 <p>
 In particular, <code>patt^0</code> is equivalent to <em>patt*</em>,
 <code>patt^1</code> is equivalent to <em>patt+</em>,
-and <code>patt^-1</code> is equivalent to <em>patt?</em>.
+and <code>patt^-1</code> is equivalent to <em>patt?</em>
+in the original PEG notation.
 </p>
+
+<p>
+In all cases,
+the resulting pattern is greedy with no backtracking.
+That is, it matches only the longest possible sequence
+of matches for <code>patt</code>.
+</p>
+
 
 
 <h2><a name="grammar">Grammars</a></h2>
@@ -345,9 +415,9 @@ we need real grammars.
 </p>
 
 <p>
-Grammars are represented by tables,
+LPeg represents grammars with tables,
 where each entry is a rule.
-Currently, LPeg allows only numbers as "non-terminals";
+LPeg allows only numbers as "non-terminals";
 more specifically,
 grammars must be lists (arrays),
 with rules indexed by consecutive integer keys starting from 1.
@@ -359,14 +429,10 @@ the result is a pattern that matches the first rule of the table.
 </p>
 
 
-<h3><code>lpeg.V (n)</code></h3>
 <p>
-Creates a pattern equivalent to <em>V<sub>n</sub></em>.
-This pattern represents the n-th nonterminal
-(or variable) in a grammar.
-</p>
-
-<p>
+The call <code>lpeg.V(n)</code>
+creates a pattern that represents the n-th nonterminal
+(or <em>variable</em>) in a grammar.
 Because the grammar still does not exist when
 this function is evaluated,
 the result is an <em>open reference</em> to the respective rule.
@@ -378,6 +444,19 @@ Then every open reference created by <code>lpeg.V(n)</code>
 is corrected to refer to the n-th rule of the table.
 </p>
 
+<p>
+As an example,
+the following grammar matches a string of 0s and 1s only
+if it has the same number of 0s and 1s:
+</p>
+<pre>
+local S, A, B = 1, 2, 3
+equalcount = lpeg.P{
+  [S] = "0" * lpeg.V(B) + "1" * lpeg.V(A) + "",
+  [A] = "0" * lpeg.V(S) + "1" * lpeg.V(A) * lpeg.V(A),
+  [B] = "1" * lpeg.V(S) + "0" * lpeg.V(B) * lpeg.V(B),
+} * -1
+</pre>
 
 <h2><a name="captures">Captures</a></h2>
 
@@ -390,27 +469,56 @@ create new values.
 </p>
 
 <p>
+The following table summarizes the basic captures:
+</p>
+<table border="1">
+<tr><td><b>Operation</b></td><td><b>What is Captured</b></td></tr>
+<tr><td><code>lpeg.C(patt)</code></td>
+  <td>the match for <code>patt</code></td></tr>
+<tr><td><code>lpeg.Cc(value)</code></td>
+    <td>the given value (matches the empty string)</td></tr>
+<tr><td><code>lpeg.Cp()</code></td>
+    <td>the current position (matches the empty string)</td></tr>
+<tr><td><code>lpeg.Cs(patt)</code></td>
+  <td>the match for <code>patt</code>
+      with nested captures replacing their matches</td></tr>
+<tr><td><code>lpeg.Ct(patt)</code></td>
+  <td>a table with all captures from <code>patt</code></td></tr>
+<tr><td><code>lpeg.Ca(patt)</code></td>
+  <td>an <em>accumulation</em> (or <em>folding</em>) of the
+      captures from <code>patt</code></td></tr>
+<tr><td><code>patt / function</code></td>
+  <td>the returns of <code>function</code> applied to the captures
+      of <code>patt</code></td></tr>
+<tr><td><code>patt / table</code></td>
+  <td><code>table[c]</code>, where <code>c</code> is the (first)
+      capture of <code>patt</code></td></tr>
+<tr><td><code>patt / string</code></td>
+  <td><code>string</code>, with some marks replaced by captures
+      of <code>patt</code></td></tr>
+</table>
+
+<p>
 A capture pattern captures a value every time it succeeds.
-A capture inside a loop generates as many values as matched by the loop.
+For instance,
+a capture inside a loop generates as many values as matched by the loop.
 A capture generates a value only when it succeeds.
-A pattern like
-<code>lpeg.C(lpeg.P'a'^-1)</code>
+For instance,
+the pattern <code>lpeg.C(lpeg.P'a'^-1)</code>
 captures the empty string when there is no <code>'a'</code>
 (because the pattern <code>'a'?</code> succeeds),
-while a pattern like
-<code>lpeg.C(lpeg.P'a')^-1</code>
+while the pattern <code>lpeg.C('a')^-1</code>
 does not capture any value when there is no <code>'a'</code>
 (because the pattern <code>'a'</code> fails).
 </p>
-
 
 <h3><code>lpeg.C (patt)</code></h3>
 <p>
 Creates a <em>simple capture</em>,
 which captures the substring of the subject that matches <code>patt</code>.
-If <code>patt</code> has other string or position captures,
-their values are returned after this one.
 The captured value is a string.
+If <code>patt</code> has other captures,
+their values are returned after this one.
 </p>
 
 
@@ -431,12 +539,30 @@ The final value of this accumulator is the sole result of
 the whole capture.
 </p>
 
+<p>
+As an example,
+the following pattern matches a list of numbers separated
+by commas and returns their addition:
+</p>
+<pre>
+-- matches a number and captures its value
+local number = lpeg.R"09"^1 / tonumber
+
+-- auxiliary function to add two numbers
+local function add (acc, newvalue) return acc + newvalue end
+
+list = lpeg.Ca(number * ("," * number / add)^0)
+
+-- example of use
+print(list:match("10,30,43"))   --> 83
+</pre>
+
 
 <h3><code>lpeg.Cc (value)</code></h3>
 <p>
 Creates a <em>constant capture</em>.
 This pattern matches the empty string and
-produces <code>value</code> as a captured value.
+produces <code>value</code> as its captured value.
 </p>
 
 
@@ -485,11 +611,11 @@ It calls the given function passing all captures made by
 or the whole match if <code>patt</code> made no capture.
 The values returned by the function
 are the final values of the capture.
-(This capture may create multpile values.)
+(This capture may create multiple values.)
 In particular,
 if <code>function</code> returns no value,
-there is no captured value.
-Everything works as if there was no capture.
+there is no captured value;
+everything works as if there was no capture.
 </p>
 
 
@@ -499,13 +625,10 @@ Creates a <em>string capture</em>.
 It creates a capture string based on <code>string</code>.
 The captured value is a copy of <code>string</code>,
 except that the character <code>%</code> works as an escape character:
-any sequence in <code>repl</code> of the form <code>%<em>n</em></code>,
+any sequence in <code>string</code> of the form <code>%<em>n</em></code>,
 with <em>n</em> between 1 and 9,
 stands for the match of the <em>n</em>-th capture in <code>patt</code>.
-(Note that it uses the match, not the capture value.
-We strongly recommend that <code>patt</code> contains only
-single string captures,
-wherein the match and capture value are the same.)
+(Currently these nested captures can be only simple captures.)
 The sequence <code>%0</code> stands for the whole match.
 The sequence <code>%%</code> stands for a single&nbsp;<code>%</code>.
 
@@ -593,14 +716,14 @@ function anywhere (p)
 end
 </pre>
 <p>
-The grammar has a straight reading:
+This grammar has a straight reading:
 it matches <code>p</code> or skips one character and tries again.
 </p>
 
 <p>
 If we want to know where the pattern is in the string
 (instead of knowing only that it is there somewhere),
-we can add position captures in the pattern:
+we can add position captures to the pattern:
 </p>
 <pre>
 local I = lpeg.Cp()
@@ -699,10 +822,10 @@ end
 </pre>
 <p>
 A field is either a quoted field
-(and then may contain any character except an individual quote,
-which may be written as two quotes that are replaced by one quote)
+(which may contain any character except an individual quote,
+which may be written as two quotes that are replaced by one)
 or an unquoted field
-(and then cannot contain commas, newlines, or quotes).
+(which cannot contain commas, newlines, or quotes).
 A record is a list of fields separated by commas,
 ending with a newline or the string end (-1).
 </p>
@@ -711,61 +834,124 @@ ending with a newline or the string end (-1).
 <h3>Lua's Long Strings</h3>
 <p>
 This example matches long strings in Lua.
-We could not come up with a "pure" PEG grammar that matches that syntax,
-so we resort to Lua.
-First, we define a function that creates pairs of related patterns:
-the first one matches a given pattern,
-and the second one matches only the same string matched by the first:
+Probably there is no pure PEG grammar that matches that syntax
+(as there is no Context-Free Grammar for it),
+so we resort to Lua:
 </p>
 <pre>
-function backwardref (patt)
-  local b         -- string matched by first function
-  local l = 0     -- its length
-  patt = lpeg.P(patt)   -- ensure 'patt' is a pattern
-
-  -- First function
-  local pre = function (s, i)     
-    local e = lpeg.match(patt, s, i)   -- matches against 'patt'
-    if not e then return nil end
-    b = string.sub(s, i, e - 1)
-    l = e - i;
-    return e;
-  end
-
-  -- Second function
-  local pos = function (s, i)
-    s = string.sub(s, i, i + l - 1)
-    return s == b and i + l            
-  end
-
-  return lpeg.P(pre), lpeg.P(pos)
-end
+local start = "[" * lpeg.P"="^0 * "["
+longstring = lpeg.P(function (s, i)
+  local l = lpeg.match(start, s, i)
+  if not l then return nil end
+  local p = lpeg.P("]" .. string.rep("=", l - i - 2) .. "]")
+  p = (1 - p)^0 * p
+  return lpeg.match(p, s, l)
+end)
 </pre>
-
 <p>
-Now, we can use the previous function to ensure that both the open
-and close delimiters match the same number of equal signs:
+The function first checks whether there is a long string starting
+at position <code>i</code>, using the <code>start</code> pattern.
+If so, it builds a pattern <code>p</code>
+that matches an ending bracket with the correct number of equal signs
+and then looks for this pattern.
 </p>
-<pre>
-local p1, p2 = backwardref(lpeg.P"="^0)
-
-local open = '[' * p1 * '['
-local close = ']' * p2 * ']'
-comment = open  * (1 - close)^0 * close
-</pre>
 
 <p>
-Lua-function patterns are not very efficient.
-So, it may be worth the use of an and predicate
+Lua-function patterns are not efficient.
+So, it may be worth the use of an and-predicate
 to pre-analyze the subject before calling Lua:
 </p>
 <pre>
-local equals = lpeg.P"="^0
-local p1, p2 = backwardref(equals)
+longstring = #("[" * lpeg.S"[=") * longstring
+</pre>
+<p>
+In this example, the pattern only calls Lua if the current position
+matches an open bracket followed by either another open bracket or
+an equal sign (so that the only valid token there is a long string).
+</p>
 
-local open = '[' * #(equals * '[') * p1 * '['
-local close = ']' * #(equals * ']') * p2 * ']'
-comment = open  * (1 - close)^0 * close
+
+<h3>UTF-8 and Latin 1</h3>
+<p>
+It is not difficult to use LPeg to convert a string from
+utf-8 encoding to Latin 1 (ISO 8859-1):
+</p>
+<pre>
+-- convert a two-byte utf8 sequence to a Latin 1 character
+local function f2 (s)
+  local c1, c2 = string.byte(s, 1, 2)
+  return string.char(c1 * 64 + c2 - 12416)
+end
+
+local utf8 = lpeg.R("\0\127")
+           + lpeg.R("\194\195") * lpeg.R("\128\191") / f2
+
+local decode_pattern = lpeg.Cs(utf8^0) * -1
+</pre>
+<p>
+In this code,
+the definition of utf-8 is already restricted to the
+Latin 1 range (from 0 to 255).
+Any encoding outside this range (as well as any invalid encoding)
+will not match that pattern.
+</p>
+
+<p>
+As the definition of <code>decode_pattern</code> demands that
+the pattern matches the whole input (because of the -1 at its end),
+any invalid string will simply fail to match,
+without any useful information about the problem.
+We can improve this situation redefining <code>decode_pattern</code>
+as follows:
+</p>
+<pre>
+local function er (_, i) error("invalid encoding at position " .. i) end
+
+local decode_pattern = lpeg.Cs(utf8^0) * (-1 + lpeg.P(er))
+</pre>
+<p>
+Now, if the pattern <code>utf8^0</code> stops
+before the end of the string,
+an appropriate error function is called.
+</p>
+
+
+<h3>UTF-8 and Unicode</h3>
+<p>
+We can extend the previous patterns to handle all Unicode code points.
+Of course,
+we cannot translate them to Latin 1 or any other one-byte encoding.
+Instead, the translation results in a array with the code points
+represented as numbers.
+The full code is here:
+</p>
+<pre>
+-- decode a two-byte utf8 sequence
+local function f2 (s)
+  local c1, c2 = string.byte(s, 1, 2)
+  return c1 * 64 + c2 - 12416
+end
+
+-- decode a three-byte utf8 sequence
+local function f3 (s)
+  local c1, c2, c3 = string.byte(s, 1, 3)
+  return (c1 * 64 + c2) * 64 + c3 - 925824
+end
+
+-- decode a four-byte utf8 sequence
+local function f4 (s)
+  local c1, c2, c3, c4 = string.byte(s, 1, 4)
+  return ((c1 * 64 + c2) * 64 + c3) * 64 + c4 - 63447168
+end
+
+local cont = lpeg.R("\128\191")   -- continuation byte
+
+local utf8 = lpeg.R("\0\127") / string.byte
+           + lpeg.R("\194\223") * cont / f2
+           + lpeg.R("\224\239") * cont * cont / f3
+           + lpeg.R("\240\244") * cont * cont * cont / f4
+
+local decode_pattern = lpeg.Ct(utf8^0) * -1
 </pre>
 
 
@@ -853,7 +1039,7 @@ G = lpeg.P{
 }
 
 -- small example
-print(m.match(G, "3 + 5*9 / (1+1) - 12"))
+print(lpeg.match(G, "3 + 5*9 / (1+1) - 12"))
 </pre>
 <p>
 Note the use of the accumulator capture.
@@ -862,6 +1048,42 @@ the accumulator starts with the value of the first factor,
 and then applies <code>eval</code> over
 the accumulator, the operator,
 and the new factor for each repetition.
+</p>
+
+
+<h2><a name="license">License</a></h2>
+
+<p>
+Copyright &copy; 2007 Lua.org, PUC-Rio.
+</p>
+<p>
+Permission is hereby granted, free of charge,
+to any person obtaining a copy of this software and
+associated documentation files (the "Software"),
+to deal in the Software without restriction,
+including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software,
+and to permit persons to whom the Software is
+furnished to do so,
+subject to the following conditions:
+</p>
+
+<p>
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions of the Software.
+</p>
+
+<p>
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 </p>
 
 <!-- Start of StatCounter Code -->

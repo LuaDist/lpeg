@@ -1,8 +1,8 @@
 /*
-** $Id: lpeg.c,v 1.37 2007/01/17 14:39:21 roberto Exp $
+** $Id: lpeg.c,v 1.55 2007/03/21 13:36:46 roberto Exp $
 ** LPeg - PEG pattern matching for Lua
 ** Copyright 2006, Lua.org & PUC-Rio
-** written by Roberto Ierusalimschy
+** written by Roberto Ierusalimschy (see documentation for license)
 */
 
 /*
@@ -32,11 +32,8 @@
 /* maximum rules in a grammar */
 #define MAXRULES	100
 
-/* maximum backtrack levels */
-#define MAXBACK		100
-
-/* maximum call levels */
-#define MAXRET		100
+/* maximum call/backtrack levels */
+#define MAXBACK		200
 
 /* initial size for capture's list */
 #define IMAXCAPTURES	600
@@ -48,8 +45,11 @@
 /* index, on Lua stack, for subject */
 #define SUBJIDX		2
 
+/* index, on Lua stack, for substitution value cache */
+#define SUBSCACHE	3
+
 /* index, on Lua stack, for capture list */
-#define CAPLISTIDX	3
+#define CAPLISTIDX	(SUBSCACHE + 1)
 
 /* index, on Lua stack, for pattern's fenv */
 #define PENVIDX		(CAPLISTIDX + 1)
@@ -65,27 +65,56 @@ typedef unsigned char byte;
 typedef byte Charset[CHARSETSIZE];
 
 
-typedef const char *(*PattFunc) (void *ud,
+typedef const char *(*PattFunc) (const void *ud,
                                  const char *o,  /* string start */
                                  const char *s,  /* current position */
                                  const char *e); /* string end */
 
 
-/* kinds of captures */
-typedef enum CapKind {
-  Cclose, Cposition, Cconst, Csimple, Ctable, Cfunction,
-  Cquery, Cstring, Csubst, Caccum
-} CapKind;
-
-
 /* Virtual Machine's instructions */
 typedef enum Opcode {
-  IAny, IChar, ICharset,
+  IAny, IChar, ISet,
+  ITestAny, ITestChar, ITestSet,
   IRet, IEnd,
   IChoice, IJmp, ICall, IOpenCall,
-  ICommit, IPartialCommit, IBackCommit, IFailTwice, IFail,
-  IFunc, ILFunc, ICapture, ICloseCapture
+  ICommit, IPartialCommit, IBackCommit, IFailTwice, IFail, IGiveup,
+  IFunc, ILFunc,
+  IFullCapture, IEmptyCapture, IOpenCapture, ICloseCapture
 } Opcode;
+
+
+#define ISJMP		1
+#define ISCHECK		2
+#define ISTEST		4
+#define ISNOFAIL	8
+#define ISCAPTURE	16
+
+static const byte opproperties[] = {
+  /* IAny */		ISCHECK,
+  /* IChar */		ISCHECK,
+  /* ISet */		ISCHECK,
+  /* ITestAny */	ISJMP | ISTEST | ISNOFAIL,
+  /* ITestChar */	ISJMP | ISTEST | ISNOFAIL,
+  /* ITestSet */	ISJMP | ISTEST | ISNOFAIL,
+  /* IRet */		0,
+  /* IEnd */		0,
+  /* IChoice */		ISJMP,
+  /* IJmp */		ISJMP | ISNOFAIL,
+  /* ICall */		ISJMP,
+  /* IOpenCall */	0,
+  /* ICommit */		ISJMP,
+  /* IPartialCommit */	ISJMP,
+  /* IBackCommit */	ISJMP,
+  /* IFailTwice */	0,
+  /* IFail */		0,
+  /* IGiveup */		0,
+  /* IFunc */		0,
+  /* ILFunc */		0,
+  /* IFullCapture */	ISCAPTURE | ISNOFAIL,
+  /* IEmptyCapture */	ISCAPTURE | ISNOFAIL,
+  /* IOpenCapture */	ISCAPTURE | ISNOFAIL,
+  /* ICloseCapture */	ISCAPTURE | ISNOFAIL
+};
 
 
 typedef union Instruction {
@@ -98,6 +127,29 @@ typedef union Instruction {
   byte buff[1];
 } Instruction;
 
+static const Instruction giveup = {{IGiveup, 0, 0}};
+
+#define getkind(op)	((op)->i.aux & 0xF)
+#define getoff(op)	(((op)->i.aux >> 4) & 0xF)
+
+#define MAXOFF		0xF
+
+#define isprop(op,p)	(opproperties[(op)->i.code] & (p))
+#define isjmp(op)	isprop(op, ISJMP)
+#define iscapture(op) 	isprop(op, ISCAPTURE)
+#define ischeck(op)	isprop(op, ISCHECK)
+#define istest(op)	isprop(op, ISTEST)
+#define isnofail(op)	isprop(op, ISNOFAIL)
+
+
+/* kinds of captures */
+typedef enum CapKind {
+  Cclose, Cposition, Cconst, Csimple, Ctable, Cfunction,
+  Cquery, Cstring, Csubst, Caccum
+} CapKind;
+
+#define iscapnosize(k)	((k) == Cposition || (k) == Cconst)
+
 
 typedef struct Capture {
   const char *s;  /* position */
@@ -107,7 +159,6 @@ typedef struct Capture {
 } Capture;
 
 
-
 /* maximum size (in elements) for a pattern */
 #define MAXPATTSIZE	((int)(SHRT_MAX/sizeof(Instruction)))
 
@@ -115,7 +166,7 @@ typedef struct Capture {
 #define instsize(l)	(((l) - 1)/sizeof(Instruction) + 2)
 
 
-/* size (in elements) for a ICharset instruction */
+/* size (in elements) for a ISet instruction */
 #define CHARSETINSTSIZE		instsize(CHARSETSIZE)
 
 
@@ -130,7 +181,7 @@ typedef struct Capture {
 
 static int sizei (Instruction *i) {
   switch(i->i.code) {
-    case ICharset: return CHARSETINSTSIZE;
+    case ISet: case ITestSet: return CHARSETINSTSIZE;
     case IFunc: return i->i.offset;
     default: return 1;
   }
@@ -144,7 +195,7 @@ static int sizei (Instruction *i) {
 */
 
 
-static void printcharset (Charset st) {
+static void printcharset (const Charset st) {
   int i;
   printf("[");
   for (i = 0; i <= UCHAR_MAX; i++) {
@@ -167,37 +218,55 @@ static void printcapkind (int kind) {
 }
 
 
-static void printinst (Instruction *op, Instruction *p) {
+static void printinst (const Instruction *op, const Instruction *p) {
   const char *const names[] = {
-    "any", "char", "charset",
+    "any", "char", "set",
+    "testany", "testchar", "testset",
     "ret", "end",
     "choice", "jmp", "call", "open_call",
-    "commit", "partial_commit", "back_commit", "failtwice", "fail",
-     "func", "Luafunc", "capture", "closecapture"
+    "commit", "partial_commit", "back_commit", "failtwice", "fail", "giveup",
+     "func", "Luafunc",
+     "fullcapture", "emptycapture", "opencapture", "closecapture"
   };
   printf("%02d: %s ", p - op, names[p->i.code]);
   switch ((Opcode)p->i.code) {
     case IChar: {
-      printf("'%c'", p->i.offset);
+      printf("'%c'", p->i.aux);
       break;
     }
-    case ICapture: {
-      printcapkind(p->i.aux);
+    case ITestChar: {
+      printf("'%c'", p->i.aux);
+      printf("-> %d", p + p->i.offset - op);
+      break;
+    }
+    case IFullCapture: case IOpenCapture:
+    case IEmptyCapture: case ICloseCapture: {
+      printcapkind(getkind(p));
+      printf("(n = %d)", getoff(p));
       /* go through */
     }
     case ILFunc: {
       printf(" (%d)", p->i.offset);
       break;
     }
-    case ICharset: {
+    case ISet: {
       printcharset((p+1)->buff);
+      break;
+    }
+    case ITestSet: {
+      printcharset((p+1)->buff);
+      printf("-> %d", p + p->i.offset - op);
       break;
     }
     case IOpenCall: {
       printf("-> %d", p->i.offset);
       break;
     }
-    case IJmp: case ICall: case IChoice: case ICommit:
+    case IChoice: {
+      printf("-> %d (%d)", p + p->i.offset - op, p->i.aux);
+      break;
+    }
+    case IJmp: case ICall: case ICommit: case ITestAny:
     case IPartialCommit: case IBackCommit: {
       printf("-> %d", p + p->i.offset - op);
       break;
@@ -221,7 +290,7 @@ static void printpatt (Instruction *p) {
 static void printcap (Capture *cap) {
   for (; cap->s; cap++) {
     printcapkind(cap->kind);
-    printf(" (%d - %d) -> %p\n", cap->idx, cap->siz, cap->s);
+    printf(" (idx: %d - size: %d) -> %p\n", cap->idx, cap->siz, cap->s);
   }
 }
 
@@ -237,12 +306,11 @@ static void printcap (Capture *cap) {
 */
 
 
-typedef struct Backtrack {
+typedef struct Stack {
   const char *s;
-  Instruction *p;
-  int retlevel;
+  const Instruction *p;
   int caplevel;
-} Backtrack;
+} Stack;
 
 
 static Capture *doublecap (lua_State *L, Capture *cap, int captop) {
@@ -258,43 +326,64 @@ static Capture *doublecap (lua_State *L, Capture *cap, int captop) {
 
 static const char *match (lua_State *L, const char *o, const char *s,
                           const char *e, Instruction *op, Capture *capture) {
-  Backtrack back[MAXBACK];
-  Instruction *ret[MAXRET];
+  Stack stackbase[MAXBACK];
+  Stack *stacklimit = stackbase + MAXBACK;
+  Stack *stack = stackbase;  /* point to first empty slot in stack */
   int capsize = IMAXCAPTURES;
-  int backtop = 0;  /* point to first empty slot in back */
-  int rettop = 0;  /* point to first empty slot in ret */
   int captop = 0;  /* point to first empty slot in captures */
-  Instruction *p = op;
+  const Instruction *p = op;
+  stack->p = &giveup; stack->s = s; stack->caplevel = 0; stack++;
   for (;;) {
 #if defined(DEBUG)
-      printf("s: |%s| b: %d r: %d c: %d  ", s, backtop, rettop, captop);
+      printf("s: |%s| stck: %d c: %d  ", s, stack - stackbase, captop);
       printinst(op, p);
 #endif
     switch ((Opcode)p->i.code) {
+      case IEnd: {
+        assert(stack == stackbase + 1);
+        capture[captop].kind = Cclose;
+        capture[captop].s = NULL;
+        return s;
+      }
+      case IGiveup: {
+        assert(stack == stackbase);
+        return NULL;
+      }
       case IRet: {
-        assert(rettop > 0);
-        p = ret[--rettop];
+        assert(stack > stackbase && (stack - 1)->s == NULL);
+        p = (--stack)->p;
         continue;
       }
       case IAny: {
         if (s >= e) goto fail;
-        s++;
-        p++;
+        else { p++; s++; }
+        continue;
+      }
+      case ITestAny: {
+        if (s >= e) p += p->i.offset;
+        else { p++; s++; }
         continue;
       }
       case IChar: {
-        if (s >= e || (byte)*s != (byte)p->i.offset)
-          goto fail;
-        s++;
-        p++;
+        if (s >= e || (byte)*s != p->i.aux) goto fail;
+        else { p++; s++; }
         continue;
       }
-      case ICharset: {
+      case ITestChar: {
+        if (s >= e || (byte)*s != p->i.aux) p += p->i.offset;
+        else { p++; s++; }
+        continue;
+      }
+      case ISet: {
         int c = (unsigned char)*s;
-        if (s >= e || !testchar((p+1)->buff, c))
-          goto fail;
-        s++;
-        p += CHARSETINSTSIZE;
+        if (s >= e || !testchar((p+1)->buff, c)) goto fail;
+        else { p += CHARSETINSTSIZE; s++; }
+        continue;
+      }
+      case ITestSet: {
+        int c = (unsigned char)*s;
+        if (s >= e || !testchar((p+1)->buff, c)) p += p->i.offset;
+        else { p += CHARSETINSTSIZE; s++; }
         continue;
       }
       case IJmp: {
@@ -302,13 +391,56 @@ static const char *match (lua_State *L, const char *o, const char *s,
         continue;
       }
       case IChoice: {
-        if (backtop >= MAXBACK)
-          return luaL_error(L, "too many pending choices"), NULL;
-        back[backtop].p = p + p->i.offset;
-        back[backtop].s = s;
-        back[backtop].caplevel = captop;
-        back[backtop++].retlevel = rettop;
+        if (stack >= stacklimit)
+          return luaL_error(L, "too many pending calls/choices"), NULL;
+        stack->p = p + p->i.offset;
+        stack->s = s - p->i.aux;
+        stack->caplevel = captop;
+        stack++;
         p++;
+        continue;
+      }
+      case ICall: {
+        if (stack >= stacklimit)
+          return luaL_error(L, "too many pending calls/choices"), NULL;
+        stack->s = NULL;
+        stack->p = p + 1;  /* save return address */
+        stack++;
+        p += p->i.offset;
+        continue;
+      }
+      case ICommit: {
+        assert(stack > stackbase && (stack - 1)->s != NULL);
+        stack--;
+        p += p->i.offset;
+        continue;
+      }
+      case IPartialCommit: {
+        assert(stack > stackbase && (stack - 1)->s != NULL);
+        (stack - 1)->s = s;
+        (stack - 1)->caplevel = captop;
+        p += p->i.offset;
+        continue;
+      }
+      case IBackCommit: {
+        assert(stack > stackbase && (stack - 1)->s != NULL);
+        s = (--stack)->s;
+        captop = stack->caplevel;
+        p += p->i.offset;
+        continue;
+      }
+      case IFailTwice:
+        assert(stack > stackbase);
+        stack--;
+        /* go through */
+      case IFail:
+      fail: { /* pattern failed: try to backtrack */
+        do {  /* remove pending calls */
+          assert(stack > stackbase);
+          s = (--stack)->s;
+        } while (s == NULL);
+        captop = stack->caplevel;
+        p = stack->p;
         continue;
       }
       case IFunc: {
@@ -331,77 +463,34 @@ static const char *match (lua_State *L, const char *o, const char *s,
         p++;
         continue;
       }
-      case ICall: {
-        assert((p + 1)->i.code != IRet);  /* no tail call */
-        if (rettop >= MAXRET)
-          return luaL_error(L, "too many pending calls"), NULL;
-        ret[rettop++] = p + 1;
-        p += p->i.offset;
-        continue;
-      }
-      case ICommit: {
-        assert(backtop > 0);
-        assert(p->i.offset > 0);
-        backtop--;
-        p += p->i.offset;
-        continue;
-      }
-      case IPartialCommit: {
-        assert(backtop > 0 && back[backtop - 1].retlevel == rettop);
-        back[backtop - 1].s = s;
-        back[backtop - 1].caplevel = captop;
-        p += p->i.offset;
-        continue;
-      }
-      case IBackCommit: {
-        assert(backtop > 0);
-        back[backtop - 1].p = p + p->i.offset;  /* "fail" to this address */
-        goto fail;
-      }
-      case IFailTwice:
-        assert(backtop > 0);
-        backtop--;
-        /* go through */
-      case IFail:
-      fail: { /* pattern failed: try to backtrack */
-        if (backtop == 0)
-          return NULL;  /* no more backtracking */
-        backtop--;
-        rettop = back[backtop].retlevel;
-        captop = back[backtop].caplevel;
-        s = back[backtop].s;
-        p = back[backtop].p;
-        continue;
-      }
       case ICloseCapture: {
         assert(captop > 0);
         if (capture[captop - 1].siz == 0 &&
-            capture[captop - 1].kind >= Csimple &&
             s - capture[captop - 1].s < UCHAR_MAX) {
           capture[captop - 1].siz = s - capture[captop - 1].s + 1;
           p++;
           continue;
         }
         /* else go through */
+      case IEmptyCapture:
+        capture[captop].siz = 1;  /* mark entry as closed */
+        goto capture;
       }
-      case ICapture: {
-        if (captop >= capsize) {
+      case IOpenCapture:
+        capture[captop].siz = 0;  /* mark entry as open */
+        goto capture;
+      case IFullCapture:
+        capture[captop].siz = getoff(p) + 1;  /* save capture size */
+      capture: {
+        capture[captop].s = s - getoff(p);
+        capture[captop].idx = p->i.offset;
+        capture[captop].kind = getkind(p);
+        if (++captop >= capsize) {
           capture = doublecap(L, capture, captop);
           capsize = 2 * captop;
         }
-        capture[captop].s = s;
-        capture[captop].idx = p->i.offset;
-        capture[captop].kind = p->i.aux;
-        capture[captop].siz = 0;
-        captop++;
         p++;
         continue;
-      }
-      case IEnd: {
-        assert(rettop == 0 && backtop == 0);
-        capture[captop].kind = Cclose;
-        capture[captop].s = NULL;
-        return s;
       }
       case IOpenCall:
         luaL_error(L, "reference to unknown rule #%d", p->i.offset);
@@ -420,28 +509,97 @@ static const char *match (lua_State *L, const char *o, const char *s,
 */
 
 
-static int verify (lua_State *L, Instruction *op, Instruction *p,
+static int verify (lua_State *L, Instruction *op, const Instruction *p,
                    Instruction *e, int rule[], int n) {
-  Backtrack back[MAXBACK];
-  Instruction *ret[MAXRET];
+  static const char dummy[] = "";
+  Stack back[MAXBACK];
   int backtop = 0;  /* point to first empty slot in back */
-  int rettop = 0;  /* point to first empty slot in ret */
   while (p != e) {
     switch ((Opcode)p->i.code) {
       case IRet: {
-        p = ret[--rettop];
+        p = back[--backtop].p;
         continue;
       }
       case IChoice: {
         if (backtop >= MAXBACK)
-          return luaL_error(L, "too many pending choices");
+          return luaL_error(L, "too many pending calls/choices");
         back[backtop].p = p + p->i.offset;
-        back[backtop++].retlevel = rettop;
+        back[backtop++].s = dummy;
+        p++;
+        continue;
+      }
+      case ICall: {
+        assert((p + 1)->i.code != IRet);  /* no tail call */
+        if (backtop >= MAXBACK)
+          return luaL_error(L, "too many pending calls/choices");
+        back[backtop].s = NULL;
+        back[backtop++].p = p + 1;
+        p += p->i.offset;
+        continue;
+      }
+      case IOpenCall: {
+        int i;
+        if (p->i.offset > n)  /* unkown non-terminal? */
+          goto fail;  /* to be verified later */
+        for (i = 0; i < backtop; i++) {
+          if (back[i].s == NULL && back[i].p == p + 1)
+            return luaL_error(L, "rule %d is left recursive", p->i.offset);
+        }
+        if (backtop >= MAXBACK)
+          return luaL_error(L, "too many pending calls/choices");
+        back[backtop].s = NULL;
+        back[backtop++].p = p + 1;
+        p = op + rule[p->i.offset - 1];
+        continue;
+      }
+      case IBackCommit:
+      case ICommit: {
+        assert(backtop > 0 && p->i.offset > 0);
+        backtop--;
+        p += p->i.offset;
+        continue;
+      }
+      case IPartialCommit: {
+        assert(backtop > 0 && p->i.offset > 0);
+        p += p->i.offset;
+        continue;
+      }
+      case ITestAny:  /* all these cases jump for empty subject */
+      case ITestChar:
+      case ITestSet:
+      case IJmp: {
+        p += p->i.offset;
+        continue;
+      }
+      case IAny:
+      case IChar:
+      case ISet:
+      case IFailTwice:  /* assume that first level failed; try to backtrack */
+        goto fail;
+      case IFail: {
+        if (p->i.aux) {  /* is an 'and' predicate? */
+          assert((p - 1)->i.code == IBackCommit && (p - 1)->i.offset == 2);
+          p++;  /* pretend it succeeded and go ahead */
+          continue;
+        }
+        /* else go through */
+      }
+      fail: { /* pattern failed: try to backtrack */
+        do {
+          if (backtop-- == 0)
+            return 1;  /* no more backtracking */
+        } while (back[backtop].s == NULL);
+        p = back[backtop].p;
+        continue;
+      }
+      case IOpenCapture:
+      case ICloseCapture:
+      case IEmptyCapture:
+      case IFullCapture: {
         p++;
         continue;
       }
       case IFunc: {
-        static const char dummy[] = "";
         const char *r = (p+1)->f((p+2)->buff, dummy, dummy, dummy);
         if (r == NULL) goto fail;
         p += p->i.offset;
@@ -450,70 +608,12 @@ static int verify (lua_State *L, Instruction *op, Instruction *p,
       case ILFunc: {
         goto fail;  /* ??? */
       }
-      case ICall: {
-        if (rettop >= MAXRET)
-          return luaL_error(L, "too many pending calls");
-        ret[rettop++] = p + 1;
-        p += p->i.offset;
-        continue;
-      }
-      case IOpenCall: {
-        int i;
-        if (p->i.offset > n)  /* unkown non-terminal? */
-          return 1;  /* to be verified later */
-        for (i = 0; i < rettop; i++) {
-          if (ret[i] == p + 1)
-            return luaL_error(L, "rule %d is left recursive", p->i.offset);
-        }
-        if (rettop >= MAXRET)
-          return luaL_error(L, "too many pending calls");
-        ret[rettop++] = p + 1;
-        p = op + rule[p->i.offset - 1];
-        continue;
-      }
-      case ICommit: {
-        backtop--;
-        p += p->i.offset;
-        continue;
-      }
-      case IPartialCommit: {
-        assert(p->i.offset > 0);
-        /* go through */
-      }  
-      case IJmp: {
-        p += p->i.offset;
-        continue;
-      }
-      case IBackCommit: {
-        back[backtop - 1].p = p + p->i.offset;  /* "fail" to this address */
-        /* go through */
-      }
-      case IAny:  /* all these cases fail for empty subject */
-      case IChar:
-      case ICharset:
-      fail: { /* pattern failed: try to backtrack */
-        if (backtop == 0)
-          return 1;  /* no more backtracking */
-        backtop--;
-        rettop = back[backtop].retlevel;
-        p = back[backtop].p;
-        continue;
-      }
-      case IFailTwice:  /* dirty trick to handle predicates */
-        backtop--;
-        /* go through */
-      case IFail:       /* ditto */
-      case ICloseCapture:
-      case ICapture: {
-        p++;
-        continue;
-      }
       case IEnd:  /* cannot happen (should stop before it) */
-      default: assert(0);
+      default: assert(0); return 0;
     }
   }
-  assert(backtop == 0 && rettop == 0);
-  return 0;  /* pattern accepts empty string */
+  assert(backtop == 0);
+  return 0;
 }
 
 
@@ -551,6 +651,120 @@ static void checkrule (lua_State *L, Instruction *op, int r,
 ** Building Patterns
 ** =======================================================
 */
+
+typedef struct CharsetTag {
+  int tag;  /* 1 if pattern is a charset, 2 if it starts with a charset */
+  Charset cs;
+} CharsetTag;
+
+
+static void check2test (Instruction *p, int n) {
+  assert(ischeck(p));
+  p->i.code += ITestAny - IAny;
+  p->i.offset = n;
+}
+
+
+/*
+** invert array slice p[0]-p[e] (both inclusive)
+*/
+static void invert (Instruction *p, int e) {
+  int i;
+  for (i = 0; i < e; i++, e--) {
+    Instruction temp = p[i];
+    p[i] = p[e];
+    p[e] = temp;
+  }
+}
+
+
+/*
+** rotate array slice p[0]-p[e] (both inclusive) 'n' steps
+** to the 'left'
+*/
+static void rotate (Instruction *p, int e, int n) {
+  invert(p, n - 1);
+  invert(p + n, e - n);
+  invert(p, e);
+}
+
+
+static int skipchecks (Instruction *p, int up, int *pn) {
+  int i, n = 0;
+  for (i = 0; n < MAXOFF - up && ischeck(p + i); i += sizei(p + i))
+    n++;
+  *pn = n;
+  return i;
+}
+
+
+#define ismovablecap(op)	(IEmptyCapture <= (op)->i.code && \
+				 (op)->i.code <= ICloseCapture && \
+				 getoff(op) < MAXOFF)
+
+static void optimizecaptures (Instruction *p) {
+  int i;
+  for (i = 0; p[i].i.code != IEnd; i += sizei(p + i)) {
+    if (ismovablecap(p + i) && ischeck(p + i + 1)) {  /* 'border'? */
+      int end, n, j;
+      int maxoff = getoff(p + i);
+      int start = i;
+      /* find first capture in the group */
+      while (start > 0 && ismovablecap(p + start - 1)) {
+        start--;
+        if (getoff(p + start) > maxoff) maxoff = getoff(p + start);
+      }
+      end = skipchecks(p + i + 1, maxoff, &n) + i;
+      for (j = start; j <= i; j++)
+        p[j].i.aux += (n << 4);
+      rotate(p + start, end - start, i - start + 1);
+      i = end;
+      assert(ischeck(p + start) && iscapture(p + i));
+    }
+  }
+}
+
+
+static void optimizejumps (Instruction *p) {
+  int i;
+  for (i = 0; p[i].i.code != IEnd; i += sizei(p + i)) {
+    if (isjmp(p + i)) {
+      int dest = i + p[i].i.offset;
+      if (p[dest].i.code == IJmp) {
+        do {
+          dest += p[dest].i.offset;
+        } while (p[dest].i.code == IJmp);
+        p[i].i.offset = dest - i;
+      }
+    }
+  }
+}
+
+
+static void optimizechoice (Instruction *p) {
+  assert(p->i.code == IChoice);
+  if (ischeck(p + 1)) {
+    int lc = sizei(p + 1);
+    rotate(p, lc, 1);
+    assert(ischeck(p) && (p + lc)->i.code == IChoice);
+    check2test(p, (p + lc)->i.offset);
+    (p + lc)->i.offset -= lc;
+    (p + lc)->i.aux = 1;
+  }
+}
+
+
+/*
+** A 'headfail' pattern is a pattern that can only fails in its first
+** instruction, which must be a check.
+*/
+static int isheadfail (Instruction *p) {
+  if (!ischeck(p)) return 0;
+  /* check that other operations cannot fail */
+  for (p += sizei(p); p->i.code != IEnd; p += sizei(p))
+    if (!isnofail(p)) return 0;
+  return 1;
+}
 
 
 #define checkpattern(L, idx) ((Instruction *)luaL_checkudata(L, idx, "pattern"))
@@ -594,11 +808,11 @@ static int addpatt (lua_State *L, Instruction *p, int p1idx) {
   Instruction *p1 = (Instruction *)lua_touserdata(L, p1idx);
   int sz = lua_objlen(L, p1idx)/sizeof(Instruction) - 1;
   int corr = jointable(L, p1idx);
-  copypatt(p, p1, sz);
+  copypatt(p, p1, sz + 1);
   if (corr != 0) {
     Instruction *px;
     for (px = p; px < p + sz; px += sizei(px)) {
-      if ((px->i.code == ICapture && px->i.offset != 0) || px->i.code == ILFunc)
+      if ((iscapture(px) && px->i.offset != 0) || px->i.code == ILFunc)
         px->i.offset += corr;
     }
   }
@@ -606,11 +820,13 @@ static int addpatt (lua_State *L, Instruction *p, int p1idx) {
 }
 
 
-static void setinst (Instruction *i, Opcode op, int offset) {
+static void setinstaux (Instruction *i, Opcode op, int offset, int aux) {
   i->i.code = op;
   i->i.offset = offset;
+  i->i.aux = aux;
 }
 
+#define setinst(i,op,off)	setinstaux(i,op,off,0)
 
 static int value2fenv (lua_State *L, int vidx) {
   lua_createtable(L, 1, 0);
@@ -633,31 +849,45 @@ static Instruction *newpatt (lua_State *L, size_t n) {
 }
 
 
-static int tocharset (Instruction *p, Charset c) {
-  loopset(i, c[i] = 0);
-  if (p->i.code == IEnd || (p + sizei(p))->i.code != IEnd)
-    return 0;  /* pattern does not have exactly 1 instruction */
-  else switch (p[0].i.code) {
-    case ICharset: {
-      loopset(i, c[i] = p[1].buff[i]);
-      return 1;
+static int tocharset (Instruction *p, CharsetTag *c) {
+  switch (p[0].i.code) {
+    case ISet: {
+      loopset(i, c->cs[i] = p[1].buff[i]);
+      break;
     }
     case IAny: {
-      loopset(i, c[i] = 0xff);
-      return 1;
+      loopset(i, c->cs[i] = 0xff);
+      break;
     }
     case IChar: {
-      setchar(c, p[0].i.offset);
-      return 1;
+      loopset(i, c->cs[i] = 0);
+      setchar(c->cs, p[0].i.aux);
+      break;
     }
-    default: return 0;
+    default: c->tag = 0; return 0;  /* 'cs' not filled */
   }
+  c->tag = ((p + sizei(p))->i.code == IEnd) ? 1 : 2;
+  return c->tag;
+}
+
+
+static int exclusiveset (Charset c1, Charset c2) {
+  /* non-empty intersection? */
+  loopset(i, {if ((c1[i] & c2[i]) != 0) return 0;});
+  return 1;  /* no intersection */
+}
+
+
+static int exclusive (CharsetTag *c1, CharsetTag *c2) {
+  if (c1->tag == 0 || c2->tag == 0)  /* one of them is not filled? */
+    return 0;
+  else return exclusiveset(c1->cs, c2->cs);
 }
 
 
 static byte *newcharset (lua_State *L) {
   Instruction *p = newpatt(L, CHARSETINSTSIZE);
-  p[0].i.code = ICharset;
+  p[0].i.code = ISet;
   loopset(i, p[1].buff[i] = 0);
   return p[1].buff;
 }
@@ -761,6 +991,7 @@ static Instruction *fix_l (lua_State *L, int t) {
     assert(p[i].i.code != ICall || (p[i + 1].i.code != IRet &&
                                     p[i + 1].i.code != IEnd));
   }
+  optimizejumps(p);
   lua_replace(L, t);  /* put new pattern in old's position */
   lua_pop(L, n);  /* remove rules */
   return p;
@@ -775,7 +1006,7 @@ static Instruction *getpatt (lua_State *L, int idx, int *size) {
       const char *s = lua_tolstring(L, idx, &len);
       p = newpatt(L, len);
       for (i = 0; i < len; i++)
-        setinst(p + i, IChar, (unsigned char)s[i]);
+        setinstaux(p + i, IChar, 0, (unsigned char)s[i]);
       lua_replace(L, idx);
       break;
     }
@@ -786,13 +1017,29 @@ static Instruction *getpatt (lua_State *L, int idx, int *size) {
         while (n--)
           setinst(p1++, IAny, 0);
       }
+      else if (n == -1) {
+        p = newpatt(L, 2);
+        setinst(p, ITestAny, 2);
+        setinst(p + 1, IFail, 0);
+      }
       else {
         int i;
         Instruction *p1 = p = newpatt(L, -n + 2);
-        setinst(p1++, IChoice, -n + 2);
-        for (i = 0; i < -n; i++)
+        setinst(p1++, ITestAny, -n + 2);
+        setinstaux(p1++, IChoice, -n + 1, 1);
+        for (i = 1; i < -n; i++)
           setinst(p1++, IAny, 0);
         setinst(p1, IFailTwice, -n + 2);
+      }
+      lua_replace(L, idx);
+      break;
+    }
+    case LUA_TBOOLEAN: {
+      if (lua_toboolean(L, idx))  /* true? */
+        p = newpatt(L, 0);  /* empty pattern (always succeeds) */
+      else {
+        p = newpatt(L, 1);
+        setinst(p, IFail, 0);
       }
       lua_replace(L, idx);
       break;
@@ -833,11 +1080,13 @@ static int literal_l (lua_State *L) {
 
 static int concat_l (lua_State *L) {
   /* p1; p2; */
+  Instruction *p;
   int l1 = getpattl(L, 1);
   int l2 = getpattl(L, 2);
-  Instruction *p = newpatt(L, l1 + l2);
-  p += addpatt(L, p, 1);
+  Instruction *op = newpatt(L, l1 + l2);
+  p = op + addpatt(L, op, 1);
   addpatt(L, p, 2);
+  optimizecaptures(op);
   return 1;
 }
 
@@ -846,19 +1095,27 @@ static int diff_l (lua_State *L) {
   int l1, l2;
   Instruction *p1 = getpatt(L, 1, &l1);
   Instruction *p2 = getpatt(L, 2, &l2);
-  Charset st1, st2;
-  if (tocharset(p1, st1) && tocharset(p2, st2)) {
+  CharsetTag st1, st2;
+  if (tocharset(p1, &st1) == 1 && tocharset(p2, &st2) == 1) {
     byte *s = newcharset(L);
-    loopset(i, s[i] = st1[i] & ~st2[i]);
+    loopset(i, s[i] = st1.cs[i] & ~st2.cs[i]);
   }
-  else {
-    /* !e2 . e1 */
+  else if (isheadfail(p2)) {
+    Instruction *p = newpatt(L, l2 + 1 + l1);
+    p += addpatt(L, p, 2);
+    check2test(p - l2, l2 + 1);
+    setinst(p++, IFail, 0);
+    addpatt(L, p, 1);
+  }
+  else {  /* !e2 . e1 */
     /* !e -> choice L1; e; failtwice; L1: ... */
     Instruction *p = newpatt(L, 1 + l2 + 1 + l1);
+    Instruction *pi = p;
     setinst(p++, IChoice, 1 + l2 + 1);
     p += addpatt(L, p, 2);
     setinst(p++, IFailTwice, 0);
     addpatt(L, p, 1);
+    optimizechoice(pi);
   }
   return 1;
 }
@@ -878,93 +1135,249 @@ static int pattand_l (lua_State *L) {
   setinst(p++, IChoice, 1 + l1 + 1);
   p += addpatt(L, p, 1);
   setinst(p++, IBackCommit, 2);
-  setinst(p, IFail, 0);
+  setinstaux(p, IFail, 0, 1);
   return 1;
+}
+
+
+static int firstpart (Instruction *p, int l) {
+  if (istest(p)) {
+    int e = p[0].i.offset - 1;
+    if ((p[e].i.code == IJmp || p[e].i.code == ICommit) &&
+        e + p[e].i.offset == l)
+      return e + 1;
+  }
+  else if (p[0].i.code == IChoice) {
+    int e = p[0].i.offset - 1;
+    if (p[e].i.code == ICommit && e + p[e].i.offset == l)
+      return e + 1;
+  }
+  return 0;
+}
+
+
+static Instruction *auxnew (lua_State *L, Instruction **op, int *size,
+                                         int extra) {
+  *op = newpatt(L, *size + extra);
+  jointable(L, 1);
+  *size += extra;
+  return *op + *size - extra;
+}
+
+
+static int nofail (Instruction *p, int l) {
+  int i;
+  for (i = 0; i < l; i += sizei(p + i)) {
+    if (!isnofail(p + 1)) return 0;
+  }
+  return 1;
+}
+
+
+static int interfere (Instruction *p1, int l1, CharsetTag *st2) {
+  if (nofail(p1, l1))  /* p1 cannot fail? */
+    return 0;  /* nothing can intefere with it */
+  if (st2->tag == 0) return 1;
+  switch (p1->i.code) {
+    case ITestChar: return testchar(st2->cs, p1->i.aux);
+    case ITestSet: return !exclusiveset(st2->cs, (p1 + 1)->buff);
+    default: assert(p1->i.code == ITestAny); return 1;
+  }
+}
+
+
+static Instruction *basicUnion (lua_State *L, Instruction *p1, int l1,
+                                int l2, int *size, CharsetTag *st2) {
+  Instruction *op;
+  CharsetTag st1;
+  tocharset(p1, &st1);
+  if (st1.tag == 1 && st2->tag == 1) {
+    Instruction *p = auxnew(L, &op, size, CHARSETINSTSIZE);
+    setinst(p++, ISet, 0);
+    loopset(i, p->buff[i] = st1.cs[i] | st2->cs[i]);
+  }
+  else if (exclusive(&st1, st2) || isheadfail(p1)) {
+    Instruction *p = auxnew(L, &op, size, l1 + 1 + l2);
+    copypatt(p, p1, l1);
+    check2test(p, l1 + 1);
+    p += l1;
+    setinst(p++, IJmp, l2 + 1);
+    addpatt(L, p, 2);
+  }
+  else {
+    /* choice L1; e1; commit L2; L1: e2; L2: ... */
+    Instruction *p = auxnew(L, &op, size, 1 + l1 + 1 + l2);
+    setinst(p++, IChoice, 1 + l1 + 1);
+    copypatt(p, p1, l1); p += l1;
+    setinst(p++, ICommit, 1 + l2);
+    addpatt(L, p, 2);
+    optimizechoice(p - (1 + l1 + 1));
+  }
+  return op;
+}
+
+
+static Instruction *separateparts (lua_State *L, Instruction *p1, int l1,
+                                   int l2, int *size, CharsetTag *st2) {
+  int sp = firstpart(p1, l1);
+  if (sp == 0)  /* first part is entire p1? */
+    return basicUnion(L, p1, l1, l2, size, st2);
+  else if ((p1 + sp - 1)->i.code == ICommit || !interfere(p1, sp, st2)) {
+    Instruction *p;
+    int init = *size;
+    int end = init + sp;
+    *size = end;
+    p = separateparts(L, p1 + sp, l1 - sp, l2, size, st2);
+    copypatt(p + init, p1, sp);
+    (p + end - 1)->i.offset = *size - (end - 1);
+    return p;
+  }
+  else {  /* must change back to non-optimized choice */
+    Instruction *p;
+    int init = *size;
+    int end = init + sp + 1;  /* needs one extra instruction (choice) */
+    int sizefirst = sizei(p1);  /* size of p1's first instruction (the test) */
+    *size = end;
+    p = separateparts(L, p1 + sp, l1 - sp, l2, size, st2);
+    copypatt(p + init, p1, sizefirst);  /* copy the test */
+    (p + init)->i.offset++;  /* correct jump (because of new instruction) */
+    init += sizefirst;
+    setinstaux(p + init, IChoice, sp - sizefirst + 1, 1); init++;
+    copypatt(p + init, p1 + sizefirst, sp - sizefirst - 1);
+    init += sp - sizefirst - 1;
+    setinst(p + init, ICommit, *size - (end - 1));
+    return p;
+  }
 }
 
 
 static int union_l (lua_State *L) {
   int l1, l2;
+  int size = 0;
   Instruction *p1 = getpatt(L, 1, &l1);
   Instruction *p2 = getpatt(L, 2, &l2);
-  Charset st1, st2;
-  if (tocharset(p1, st1) && tocharset(p2, st2)) {
-    byte *s = newcharset(L);
-    loopset(i, s[i] = st1[i] | st2[i]);
-  }
+  CharsetTag st2;
+  if (p1->i.code == IFail)  /* check for identity element */
+    lua_pushvalue(L, 2);
+  else if (p2->i.code == IFail)
+    lua_pushvalue(L, 1);
   else {
-    /* choice L1; e1; commit L2; L1: e2; L2: ... */
-    Instruction *p = newpatt(L, 1 + l1 + 1 + l2);
-    int comm;
-    while (p1[0].i.code == IChoice &&
-          p1[comm = p1[0].i.offset - 1].i.code == ICommit &&
-          p1[comm].i.offset + comm == l1) {
-      copypatt(p, p1, comm); p += comm;
-      setinst(p++, ICommit, (l1 - comm) + 2 + l2);
-      p1 += comm + 1;
-      l1 -= comm + 1;
-    }
-    jointable(L, 1);
-    setinst(p++, IChoice, 1 + l1 + 1);
-    copypatt(p, p1, l1); p += l1;
-    setinst(p++, ICommit, 1 + l2);
-    addpatt(L, p, 2);
+    tocharset(p2, &st2);
+    separateparts(L, p1, l1, l2, &size, &st2);
   }
   return 1;
+}
+
+
+static Instruction *repeatheadfail (lua_State *L, int l1, int n) {
+  /* e; ...; e; L2: e'(L1); jump L2; L1: ... */
+  int i;
+  Instruction *p = newpatt(L, (n + 1)*l1 + 1);
+  Instruction *op = p;
+  for (i = 0; i < n; i++) {
+    p += addpatt(L, p, 1);
+  }
+  p += addpatt(L, p, 1);
+  check2test(p - l1, l1 + 1);
+  setinst(p, IJmp, -l1);
+  return op;
+}
+
+
+static Instruction *repeats (lua_State *L, Instruction *p1, int l1, int n) {
+  /* e; ...; e; choice L1; L2: e; partialcommit L2; L1: ... */
+  int i;
+  Instruction *op = newpatt(L, (n + 1)*l1 + 2);
+  Instruction *p = op;
+  if (!verify(L, p1, p1, p1 + l1, NULL, 0))
+    luaL_error(L, "loop body may accept empty string");
+  for (i = 0; i < n; i++) {
+    p += addpatt(L, p, 1);
+  }
+  setinst(p++, IChoice, 1 + l1 + 1);
+  p += addpatt(L, p, 1);
+  setinst(p, IPartialCommit, -l1);
+  return op;
+}
+
+
+static void optionalheadfail (lua_State *L, int l1, int n) {
+  Instruction *op = newpatt(L, n * l1);
+  Instruction *p = op;
+  int i;
+  for (i = 0; i < n; i++) {
+    p += addpatt(L, p, 1);
+    check2test(p - l1, (n - i)*l1);
+  }
+}
+
+
+static void optionals (lua_State *L, int l1, int n) {
+  /* choice L1; e; partialcommit L2; L2: ... e; L1: commit L3; L3: ... */
+  int i;
+  Instruction *op = newpatt(L, n*(l1 + 1) + 1);
+  Instruction *p = op;
+  setinst(p++, IChoice, 1 + n*(l1 + 1));
+  for (i = 0; i < n; i++) {
+    p += addpatt(L, p, 1);
+    setinst(p++, IPartialCommit, 1);
+  }
+  setinst(p - 1, ICommit, 1);  /* correct last commit */
+  optimizechoice(op);
 }
 
 
 static int star_l (lua_State *L) {
-  /* e; ...; e; choice L1; L2: e; partialcommit L2; L1: ... */
-  /* choice L1; e; partialcommit L2; L2: ... e; L1: commit L3; L3: ... */
-  int i, l1;
+  int l1;
   int n = luaL_checkint(L, 2);
   Instruction *p1 = getpatt(L, 1, &l1);
   if (n >= 0) {
-    Instruction *p = newpatt(L, (n + 1)*l1 + 2);
-    if (!verify(L, p1, p1, p1 + l1, NULL, 0))
-      luaL_error(L, "loop body may accept empty string");
-    for (i = 0; i < n; i++) {
-      p += addpatt(L, p, 1);
-    }
-    setinst(p++, IChoice, 1 + l1 + 1);
-    p += addpatt(L, p, 1);
-    setinst(p, IPartialCommit, -l1);
+    Instruction *op;
+    if (isheadfail(p1))
+      op = repeatheadfail(L, l1, n);
+    else
+      op = repeats(L, p1, l1, n);
+    optimizecaptures(op);
+    optimizejumps(op);
   }
   else {
-    Instruction *p = newpatt(L, -n*(l1 + 1) + 1);
-    setinst(p++, IChoice, 1 + -n*(l1 + 1));
-    for (i = 0; i < -n; i++) {
-      p += addpatt(L, p, 1);
-      setinst(p++, IPartialCommit, 1);
-    }
-    setinst(p - 1, ICommit, 1);  /* correct last commit */
+    if (isheadfail(p1))
+      optionalheadfail(L, l1, -n);
+    else
+      optionals(L, l1, -n);
   }
   return 1;
 }
 
 
-static Instruction *newcap (lua_State *L, int labelidx, int extrasize) {
-  Instruction *p = newpatt(L, 1 + extrasize);
-  p->i.code = ICapture;
-  if (labelidx == 0)
-    p->i.offset = 0;
-  else {
-    luaL_checkany(L, labelidx);
-    p->i.offset = value2fenv(L, labelidx);
-  }
-  return p;
+static int getlabel (lua_State *L, int labelidx) {
+  if (labelidx == 0) return 0;
+  else return value2fenv(L, labelidx);
 }
 
 
+#define setinstcap(i,op,idx,k,n)	setinstaux(i,op,idx,((k) | ((n) << 4)))
+
+
 static int capture_aux (lua_State *L, int kind, int labelidx) {
-  int l1 = getpattl(L, 1);
-  Instruction *p = newcap(L, labelidx, l1 + 1);
-  p->i.aux = kind;
-  p++;
-  p += addpatt(L, p, 1);
-  setinst(p, ICloseCapture, 0);
-  p->i.aux = Cclose;
+  int l1, n;
+  Instruction *p1 = getpatt(L, 1, &l1);
+  int lc = skipchecks(p1, 0, &n);
+  if (lc == l1) {  /* got whole pattern? */
+    /* may use a IFullCapture instruction at its end */
+    Instruction *p = newpatt(L, l1 + 1);
+    int label = getlabel(L, labelidx);
+    p += addpatt(L, p, 1);
+    setinstcap(p, IFullCapture, label, kind, n);
+  }
+  else {  /* must use open-close pair */
+    Instruction *op = newpatt(L, 1 + l1 + 1);
+    Instruction *p = op;
+    setinstcap(p++, IOpenCapture, getlabel(L, labelidx), kind, 0);
+    p += addpatt(L, p, 1);
+    setinstcap(p, ICloseCapture, 0, Cclose, 0);
+    optimizecaptures(op);
+  }
   return 1;
 }
 
@@ -985,15 +1398,17 @@ static int rcapture_l (lua_State *L) {
 
 
 static int position_l (lua_State *L) {
-  Instruction *p = newcap(L, 0, 0);
-  p->i.aux = Cposition;
+  Instruction *p = newpatt(L, 1);
+  setinstcap(p, IEmptyCapture, 0, Cposition, 0);
   return 1;
 }
 
 
 static int capconst_l (lua_State *L) {
-  Instruction *p = newcap(L, 1, 0);
-  p->i.aux = Cconst;
+  Instruction *p;
+  luaL_checkany(L, 1);
+  p = newpatt(L, 1);
+  setinstcap(p, IEmptyCapture, getlabel(L, 1), Cconst, 0);
   return 1;
 }
 
@@ -1018,9 +1433,9 @@ static void newpattfunc (lua_State *L, PattFunc f, void *ud, size_t l) {
 }
 
 
-static const char *utf_a (void *ud, const char *o, const char *s,
+static const char *utf_a (const void *ud, const char *o, const char *s,
                                     const char *e) {
-  wctype_t tp = *(wctype_t *)ud;
+  wctype_t tp = *(const wctype_t *)ud;
   wint_t c;
   (void)o;  /* not used */
   if (*(const unsigned char *)s < 0x80)
@@ -1080,6 +1495,7 @@ typedef struct CapState {
   Capture *cap;  /* current capture */
   lua_State *L;
   const char *s;  /* original string */
+  int valuecached;  /* value stored in cache slot */
 } CapState;
 
 
@@ -1087,13 +1503,23 @@ typedef struct CapState {
 
 #define isclosecap(cap)	(captype(cap) == Cclose)
 
-#define isfullcap(cap)	((cap)->siz != 0)
+#define closeaddr(c)	((c)->s + (c)->siz - 1)
 
-#define closeaddr(c)	(isfullcap(c) ? (c)->s + (c)->siz - 1 : (c)->s)
+#define isfullcap(cap)	((cap)->siz != 0)
 
 #define pushluaval(cs)	lua_rawgeti((cs)->L, PENVIDX, (cs)->cap->idx)
 
-#define pushsubject(cs, cap) lua_pushlstring((cs)->L, (cap)->s, (cap)->siz - 1)
+#define pushsubject(cs, c) lua_pushlstring((cs)->L, (c)->s, (c)->siz - 1)
+
+
+#define updatecache(cs,v) { if ((v) != (cs)->valuecached) updatecache_(cs,v); }
+
+
+static void updatecache_ (CapState *cs, int v) {
+  lua_rawgeti(cs->L, PENVIDX, v);
+  lua_replace(cs->L, SUBSCACHE);
+  cs->valuecached = v;
+}
 
 
 static int pushcapture (CapState *cs);
@@ -1126,8 +1552,11 @@ static int simplecap (CapState *cs) {
 }
 
 
-static void tablecap (CapState *cs) {
+static int tablecap (CapState *cs) {
   int n = 0;
+  lua_newtable(cs->L);
+  if (isfullcap(cs->cap++))
+    return 1;  /* table is empty */
   while (!isclosecap(cs->cap)) {
     int i;
     int k = pushcapture(cs);
@@ -1136,28 +1565,27 @@ static void tablecap (CapState *cs) {
     n += k;
   }
   cs->cap++;  /* skip close entry */
+  return 1;
 }
 
 
 static int querycap (CapState *cs) {
-  int n;
-  pushluaval(cs);
-  n = pushallcaptures(cs, 0);
+  int idx = cs->cap->idx;
+  int n = pushallcaptures(cs, 0);
   if (n > 1)  /* extra captures? */
     lua_pop(cs->L, n - 1);  /* throw them away */
-  lua_gettable(cs->L, -2);
-  if (!lua_isnil(cs->L, -1)) {
-    lua_remove(cs->L, -2);  /* remove table */
+  updatecache(cs, idx);
+  lua_gettable(cs->L, SUBSCACHE);
+  if (!lua_isnil(cs->L, -1))
     return 1;
-  }
   else {
-    lua_pop(cs->L, 2);
+    lua_pop(cs->L, 1);  /* remove value */
     return 0;
   }
 }
 
 
-static void accumcap (CapState *cs) {
+static int accumcap (CapState *cs) {
   lua_State *L = cs->L;
   if (isfullcap(cs->cap++) || isclosecap(cs->cap) || pushcapture(cs) != 1)
     luaL_error(L, "no initial value for accumulator capture");
@@ -1171,6 +1599,7 @@ static void accumcap (CapState *cs) {
     lua_call(L, n + 1, 1);
   }
   cs->cap++;
+  return 1;
 }
 
 
@@ -1212,9 +1641,8 @@ static void stringcap (luaL_Buffer *b, CapState *cs) {
   int n;
   size_t len, i;
   const char *c;
-  pushluaval(cs);
-  c = lua_tolstring(cs->L, -1, &len);
-  lua_pop(cs->L, 1);  /* remove original string; NOT VERY RELIGIOUS!! */
+  updatecache(cs, cs->cap->idx);
+  c = lua_tolstring(cs->L, SUBSCACHE, &len);
   n = getstrcaps(cs, cps, 0) - 1;
   for (i = 0; i < len; i++) {
     if (c[i] != '%' || c[++i] < '0' || c[i] > '9')
@@ -1287,12 +1715,6 @@ static int pushcapture (CapState *cs) {
       luaL_pushresult(&b);
       return 1;
     }
-    case Ctable: {
-      lua_newtable(cs->L);
-      if (!isfullcap(cs->cap++))
-        tablecap(cs);
-      return 1;
-    }
     case Csubst: {
       if (isfullcap(cs->cap++))  /* no changes? */
         pushsubject(cs, cs->cap - 1);  /* push original subject */
@@ -1300,9 +1722,10 @@ static int pushcapture (CapState *cs) {
         substcap(cs);
       return 1;
     }
+    case Ctable: return tablecap(cs);
     case Cfunction: return functioncap(cs);
     case Cquery: return querycap(cs);
-    case Caccum: accumcap(cs); return 1;
+    case Caccum: return accumcap(cs);
     default: assert(0); return 0;
   }
 }
@@ -1312,7 +1735,7 @@ static int getcaptures (lua_State *L, const char *s, const char *r) {
   Capture *capture = (Capture *)lua_touserdata(L, CAPLISTIDX);
   CapState cs;
   int n = 0;
-  cs.cap = capture; cs.L = L; cs.s = s;
+  cs.cap = capture; cs.L = L; cs.s = s; cs.valuecached = 0;
   while (!isclosecap(cs.cap))
     n += pushcapture(&cs);
   if (n == 0) {  /* no captures? */

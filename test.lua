@@ -35,6 +35,8 @@ print"General tests for LPeg library"
 assert(m.match(3, "aaaa"))
 assert(m.match(4, "aaaa"))
 assert(not m.match(5, "aaaa"))
+assert(m.match(-3, "aa"))
+assert(not m.match(-3, "aaa"))
 assert(not m.match(-3, "aaaa"))
 assert(not m.match(-4, "aaaa"))
 assert(m.P(-5):match"aaaa")
@@ -42,13 +44,15 @@ assert(m.P(-5):match"aaaa")
 assert(m.match("a", "alo") == 2)
 assert(m.match("al", "alo") == 3)
 assert(not m.match("alu", "alo"))
+assert(m.match(true, "") == 1)
 
 digit = m.S"0123456789"
 upper = m.S"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 lower = m.S"abcdefghijklmnopqrstuvwxyz"
-letter = upper + lower
-alpha = letter + digit
+letter = m.S"" + upper + lower
+alpha = letter + digit + m.R()
 
+eqcharset(m.S"", m.P(false))
 eqcharset(upper, m.R("AZ"))
 eqcharset(lower, m.R("az"))
 eqcharset(upper + lower, m.R("AZ", "az"))
@@ -119,14 +123,45 @@ t = {m.match({[1] = m.C(m.C(1) * m.V(1) + -1)}, "abc")}
 checkeq(t, {"abc", "a", "bc", "b", "c", "c", ""})
 
 
+-- test for small capture boundary
+for i = 250,260 do
+  assert(#m.match(m.C(i), string.rep('a', i)) == i)
+  assert(#m.match(m.C(m.C(i)), string.rep('a', i)) == i)
+end
+
+
 -- test for alternation optimization
+assert(m.match(m.P"a"^1 + "ab" + m.P"x"^0, "ab") == 2)
+assert(m.match((m.P"a"^1 + "ab" + m.P"x"^0 * 1)^0, "ab") == 3)
+assert(m.match(m.P"ab" + "cd" + "" + "cy" + "ak", "98") == 1)
+assert(m.match(m.P"ab" + "cd" + "ax" + "cy", "ax") == 3)
+assert(m.match((m.P"ab" + "cd" + "ax" + "cy")^0, "ax") == 3)
+assert(m.match(m.P(1) * "x" + m.S"" * "xu" + "ay", "ay"))
+assert(m.match(m.P"abc" + "cde" + "aka", "aka"))
+assert(m.match(m.S"abc" * "x" + "cde" + "aka", "ax"))
+assert(m.match(m.S"abc" * "x" + "cde" + "aka", "aka"))
+assert(m.match(m.S"abc" * "x" + "cde" + "aka", "cde"))
+assert(m.match(m.S"abc" * "x" + "ide" + m.S"ab" * "ka", "aka"))
+assert(m.match(m.P(1) * "x" + "cde" + m.S"ab" * "ka", "aka"))
+assert(m.match(m.P(1) * "x" + "cde" + m.P(1) * "ka", "aka"))
+assert(m.match(m.P(1) * "x" + "cde" + m.P(1) * "ka", "cde"))
+assert(m.match(m.P"eb" + "cd" + m.P"e"^0 + "x", "ee") == 3)
+assert(m.match(m.P"ab" + "cd" + m.P"e"^0 + "x", "abcd") == 3)
+assert(m.match(m.P"ab" + "cd" + m.P"e"^0 + "x", "eeex") == 4)
+assert(m.match(m.P"ab" + "cd" + m.P"e"^0 + "x", "cd") == 3)
+assert(m.match(m.P"ab" + "cd" + m.P"e"^0 + "x", "x") == 1)
+assert(m.match(m.P"ab" + "cd" + m.P"e"^0 + "x" + "", "zee") == 1)
 assert(m.match(m.P"ab" + "cd" + m.P"e"^1 + "x", "abcd") == 3)
-assert(m.match(m.P"ab" + "cd" + m.P"e"^1 + "x", "eeex") == 4)
 assert(m.match(m.P"ab" + "cd" + m.P"e"^1 + "x", "eeex") == 4)
 assert(m.match(m.P"ab" + "cd" + m.P"e"^1 + "x", "cd") == 3)
 assert(m.match(m.P"ab" + "cd" + m.P"e"^1 + "x", "x") == 2)
 assert(m.match(m.P"ab" + "cd" + m.P"e"^1 + "x" + "", "zee") == 1)
+
+pi = "3.14159 26535 89793 23846 26433 83279 50288 41971 69399 37510"
+assert(m.match(m.Cs((m.P"1" / "a" + m.P"5" / "b" + m.P"9" / "c" + 1)^0), pi) ==
+  m.match(m.Cs((m.P(1) / {["1"] = "a", ["5"] = "b", ["9"] = "c"})^0), pi))
 print"+"
+
 
 -- test for table captures
 t = m.match(m.Ct(letter^1), "alo")
@@ -203,6 +238,17 @@ G = Space * G * -1
 for _, s in ipairs{" 3 + 5*9 / (1+1) ", "3+4/2", "3+3-3- 9*2+3*9/1-  8"} do
   assert(m.match(G, s) == loadstring("return "..s)())
 end
+
+
+-- test for grammars (errors deep in calling non-terminals)
+g = m.P{
+  [1] = m.V(2) + "a",
+  [2] = "a" * m.V(3) * "x",
+  [3] = "b" * m.V(3) + "c"
+}
+
+assert(m.match(g, "abbbcx") == 7)
+assert(m.match(g, "abbbbx") == 2)
 
 
 -- tests for \0
@@ -350,6 +396,8 @@ assert(m.match(1 * m.Cs(m.P(1)^0), "abcdde") == "bcdde")
 assert(m.match(m.Cs((m.C('0')/'x' + 1)^0), "abcdde") == "abcdde")
 assert(m.match(m.Cs((m.C('0')/'x' + 1)^0), "0ab0b0") == "xabxbx")
 assert(m.match(m.Cs((m.C('0')/'x' + m.P(1)/{b=3})^0), "b0a0b") == "3xax3")
+assert(m.match(m.P(1)/'%0%0'/{aa = -3} * 'x', 'ax') == -3)
+assert(m.match(m.C(1)/'%0%1'/{aa = 'z'}/{z = -3} * 'x', 'ax') == -3)
 
 assert(m.match(m.Cs(m.Cc(0) * (m.P(1)/"")), "4321") == "0")
 
@@ -392,6 +440,8 @@ haveloop(- -m.P("ab"))
 haveloop(# #(m.P("ab") + "xy"))
 haveloop(- #m.P("ab")^0)
 haveloop(# -m.P("ab")^1)
+haveloop(#m.V(3))
+haveloop(m.V(3) + m.V(1) + m.P('a')^-1)
 haveloop({[1] = m.V(2) * m.V(3), [2] = m.V(3), [3] = m.P(0)})
 assert(m.match(m.P{[1] = m.V(2) * m.V(3), [2] = m.V(3), [3] = m.P(1)}^0, "abc")
        == 3)
