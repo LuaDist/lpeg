@@ -62,6 +62,11 @@ eqcharset(upper, letter - lower)
 eqcharset(m.S(""), m.R())
 assert(cs2str(m.S("")) == "")
 
+eqcharset(m.S"\0", "\0")
+eqcharset(m.S"\1\0\2", m.R"\0\2")
+eqcharset(m.S"\1\0\2", m.R"\1\2" + "\0")
+eqcharset(m.S"\1\0\2" - "\0", m.R"\1\2")
+
 word = alpha^1 * (1 - alpha)^0
 
 assert((word^0 * -1):match"alo alo")
@@ -107,10 +112,11 @@ checkeq(a, {"two", "words", "one", "more"})
 
 assert(m.match( basiclookfor((#m.P(b) * 1) * m.Cp()), "  (  (a)") == 7)
 
-assert(m.match(caplookfor(m.utf8("digit")^1), "  éção46") == "46")
-
 a = {m.match(m.C(digit^1 * m.Cc"d") + m.C(letter^1 * m.Cc"l"), "123")}
 checkeq(a, {"123", "d"})
+
+a = {m.match(m.C(digit^1) * "d" * -1 + m.C(letter^1 * m.Cc"l"), "123d")}
+checkeq(a, {"123"})
 
 a = {m.match(m.C(digit^1 * m.Cc"d") + m.C(letter^1 * m.Cc"l"), "abcd")}
 checkeq(a, {"abcd", "l"})
@@ -130,21 +136,52 @@ for i = 250,260 do
 end
 
 
+-- tests for any*n
+for n = 1, 550 do
+  local x_1 = string.rep('x', n - 1)
+  local x = x_1 .. 'a'
+  assert(not m.P(n):match(x_1))
+  assert(m.P(n):match(x) == n + 1)
+  assert(n < 4 or m.match(m.P(n) + "xxx", x_1) == 4)
+  assert(m.C(n):match(x) == x)
+  assert(m.C(m.C(n)):match(x) == x)
+  assert(m.P(-n):match(x_1) == 1)
+  assert(not m.P(-n):match(x))
+  assert(n < 13 or m.match(m.Cc(20) * (n - 13) * m.P(10) * 3, x) == 20)
+  local n3 = math.floor(n/3)
+  assert(m.match(n3 * m.Cp() * n3 * n3, x) == n3 + 1)
+end
+
+assert(m.P(0):match("x") == 1)
+assert(m.P(0):match("") == 1)
+assert(m.C(0):match("x") == "")
+assert(m.match(m.Cc(0) * m.P(10) + m.Cc(1) * "xuxu", "xuxu") == 1)
+assert(m.match(m.Cc(0) * m.P(10) + m.Cc(1) * "xuxu", "xuxuxuxuxu") == 0)
+assert(m.match(m.C(m.P(2)^1), "abcde") == "abcd")
+p = m.Cc(0) * 1 + m.Cc(1) * 2 + m.Cc(2) * 3 + m.Cc(3) * 4
+
+
 -- test for alternation optimization
 assert(m.match(m.P"a"^1 + "ab" + m.P"x"^0, "ab") == 2)
 assert(m.match((m.P"a"^1 + "ab" + m.P"x"^0 * 1)^0, "ab") == 3)
 assert(m.match(m.P"ab" + "cd" + "" + "cy" + "ak", "98") == 1)
 assert(m.match(m.P"ab" + "cd" + "ax" + "cy", "ax") == 3)
+assert(m.match("a" * m.P"b"^0 * "c"  + "cd" + "ax" + "cy", "ax") == 3)
 assert(m.match((m.P"ab" + "cd" + "ax" + "cy")^0, "ax") == 3)
-assert(m.match(m.P(1) * "x" + m.S"" * "xu" + "ay", "ay"))
-assert(m.match(m.P"abc" + "cde" + "aka", "aka"))
-assert(m.match(m.S"abc" * "x" + "cde" + "aka", "ax"))
-assert(m.match(m.S"abc" * "x" + "cde" + "aka", "aka"))
-assert(m.match(m.S"abc" * "x" + "cde" + "aka", "cde"))
-assert(m.match(m.S"abc" * "x" + "ide" + m.S"ab" * "ka", "aka"))
-assert(m.match(m.P(1) * "x" + "cde" + m.S"ab" * "ka", "aka"))
-assert(m.match(m.P(1) * "x" + "cde" + m.P(1) * "ka", "aka"))
-assert(m.match(m.P(1) * "x" + "cde" + m.P(1) * "ka", "cde"))
+assert(m.match(m.P(1) * "x" + m.S"" * "xu" + "ay", "ay") == 3)
+assert(m.match(m.P"abc" + "cde" + "aka", "aka") == 4)
+assert(m.match(m.S"abc" * "x" + "cde" + "aka", "ax") == 3)
+assert(m.match(m.S"abc" * "x" + "cde" + "aka", "aka") == 4)
+assert(m.match(m.S"abc" * "x" + "cde" + "aka", "cde") == 4)
+assert(m.match(m.S"abc" * "x" + "ide" + m.S"ab" * "ka", "aka") == 4)
+assert(m.match("ab" + m.S"abc" * m.P"y"^0 * "x" + "cde" + "aka", "ax") == 3)
+assert(m.match("ab" + m.S"abc" * m.P"y"^0 * "x" + "cde" + "aka", "aka") == 4)
+assert(m.match("ab" + m.S"abc" * m.P"y"^0 * "x" + "cde" + "aka", "cde") == 4)
+assert(m.match("ab" + m.S"abc" * m.P"y"^0 * "x" + "ide" + m.S"ab" * "ka", "aka") == 4)
+assert(m.match("ab" + m.S"abc" * m.P"y"^0 * "x" + "ide" + m.S"ab" * "ka", "ax") == 3)
+assert(m.match(m.P(1) * "x" + "cde" + m.S"ab" * "ka", "aka") == 4)
+assert(m.match(m.P(1) * "x" + "cde" + m.P(1) * "ka", "aka") == 4)
+assert(m.match(m.P(1) * "x" + "cde" + m.P(1) * "ka", "cde") == 4)
 assert(m.match(m.P"eb" + "cd" + m.P"e"^0 + "x", "ee") == 3)
 assert(m.match(m.P"ab" + "cd" + m.P"e"^0 + "x", "abcd") == 3)
 assert(m.match(m.P"ab" + "cd" + m.P"e"^0 + "x", "eeex") == 4)
@@ -162,6 +199,11 @@ assert(m.match(m.Cs((m.P"1" / "a" + m.P"5" / "b" + m.P"9" / "c" + 1)^0), pi) ==
   m.match(m.Cs((m.P(1) / {["1"] = "a", ["5"] = "b", ["9"] = "c"})^0), pi))
 print"+"
 
+
+-- tests for capture optimizations
+assert(m.match((m.P(3) +  4 * m.Cp()) * "a", "abca") == 5)
+t = {m.match(((m.P"a" + m.Cp()) * m.P"x")^0, "axxaxx")}
+checkeq(t, {3, 6})
 
 -- test for table captures
 t = m.match(m.Ct(letter^1), "alo")
@@ -226,11 +268,10 @@ local function f_term (v1, op, v2, d)
   end
 end
 
-local Exp, Term, Factor = 1, 2, 3
-G = m.P{
-  [Exp] = m.Ca(V(Factor) * (FactorOp * V(Factor) / f_factor)^0);
-  [Factor] = m.Ca(V(Term) * (TermOp * V(Term) / f_term)^0);
-  [Term] = Number / tonumber  +  Open * V(Exp) * Close;
+G = m.P{ "Exp",
+  Exp = m.Ca(V"Factor" * (FactorOp * V"Factor" / f_factor)^0);
+  Factor = m.Ca(V"Term" * (TermOp * V"Term" / f_term)^0);
+  Term = Number / tonumber  +  Open * V"Exp" * Close;
 }
 
 G = Space * G * -1
@@ -257,6 +298,8 @@ assert(m.match(m.S("\0\1ab")^1, "\0\1\0a") == 5)
 assert(m.match(m.P(1)^3, "\0\1\0a") == 5)
 assert(not m.match(-4, "\0\1\0a"))
 assert(m.match("\0\1\0a", "\0\1\0a") == 5)
+assert(m.match("\0\0\0", "\0\0\0") == 4)
+assert(not m.match("\0\0\0", "\0\0"))
 
 
 -- tests for predicates
@@ -269,6 +312,35 @@ assert(m.match(m.Cs((##m.P("a") * 1 + m.P(1)/".")^0), "aloal") == "a..a.")
 assert(m.match(m.Cs((#((#m.P"a")/"") * 1 + m.P(1)/".")^0), "aloal") == "a..a.")
 assert(m.match(m.Cs((- -m.P("a") * 1 + m.P(1)/".")^0), "aloal") == "a..a.")
 assert(m.match(m.Cs((-((-m.P"a")/"") * 1 + m.P(1)/".")^0), "aloal") == "a..a.")
+
+
+-- tests for Tail Calls
+
+-- create a grammar for a simple DFA for even number of 0s and 1s
+-- finished in '$':
+--
+--  ->1 <---0---> 2
+--    ^           ^
+--    |           |
+--    1           1
+--    |           |
+--    V           V
+--    3 <---0---> 4
+--
+-- this grammar should keep no backtracking information
+
+p = m.P{
+  [1] = '0' * m.V(2) + '1' * m.V(3) + '$',
+  [2] = '0' * m.V(1) + '1' * m.V(4),
+  [3] = '0' * m.V(4) + '1' * m.V(1),
+  [4] = '0' * m.V(3) + '1' * m.V(2),
+}
+
+assert(p:match(string.rep("00", 10000) .. "$"))
+assert(p:match(string.rep("01", 10000) .. "$"))
+assert(p:match(string.rep("011", 10000) .. "$"))
+assert(not p:match(string.rep("011", 10001) .. "$"))
+
 
 
 -- tests for optional start position
@@ -288,16 +360,11 @@ assert(not m.match(1, "", -1))
 assert(not m.match(1, "", 0))
 
 
--- basic tests for utf8
--- break a UTF8 string into characters
+-- basic tests for external C function
 
-c = "君が Ελληνικά"
-
-u = m.Ct((m.Cp() * m.utf8())^0)
-
-t = (m.match(u, c))
-assert(#t == 11 and t[4] - t[1] == string.len("君が ") and
-                    t[5] - t[4] == string.len("Ε"))
+assert(m.match(m.span("abcd"), "abbbacebb") == 7)
+assert(m.match(m.span("abcd"), "0abbbacebb") == 1)
+assert(m.match(m.span("abcd"), "") == 1)
 
 print("+")
 
@@ -457,13 +524,104 @@ local function badgrammar (g, exp)
   if exp then assert(find(exp, msg)) end
 end
 
-badgrammar({[1] = m.V(1)}, "rule 1")
-badgrammar({[1] = m.V(2)}, "non-terminal 2")   -- invalid non-terminal
-badgrammar({[1] = #m.P("a") * m.V(1)}, "rule 1")
-badgrammar({[1] = -m.P("a") * m.V(1)}, "rule 1")
-badgrammar({[1] = -1 * m.V(1)}, "rule 1")
-badgrammar({[1] = 1 * m.V(2), [2] = m.V(2)}, "rule 2")
-badgrammar({[1] = m.P(0), [2] = 1 * m.V(1)^0}, "loop in rule 2")
+badgrammar({[1] = m.V(1)}, "rule '1'")
+badgrammar({[1] = m.V(2)}, "rule '2'")   -- invalid non-terminal
+badgrammar({[1] = m.V"x"}, "rule 'x'")   -- invalid non-terminal
+badgrammar({[1] = m.V{}}, "rule <a table>")   -- invalid non-terminal
+badgrammar({[1] = #m.P("a") * m.V(1)}, "rule '1'")
+badgrammar({[1] = -m.P("a") * m.V(1)}, "rule '1'")
+badgrammar({[1] = -1 * m.V(1)}, "rule '1'")
+badgrammar({[1] = 1 * m.V(2), [2] = m.V(2)}, "rule '2'")
+badgrammar({[1] = m.P(0), [2] = 1 * m.V(1)^0}, "loop in rule '2'")
+
+
+-- simple tests for maximum sizes:
+local p = m.P"a"
+for i=1,14 do p = p * p end
+
+p = {}
+for i=1,100 do p[i] = m.P"a" end
+p = m.P(p)
+
+
+-- strange values for rule labels
+
+p = m.P{ "print",
+     print = m.V(print),
+     [print] = m.V(_G),
+     [_G] = m.P"a",
+   }
+
+assert(p:match("a"))
+
+-- initial rule
+g = {}
+for i = 1, 10 do g["i"..i] =  "a" * m.V("i"..i+1) end
+g.i11 = m.P""
+for i = 1, 10 do
+  g[1] = "i"..i
+  local p = m.P(g)
+  assert(p:match("aaaaaaaaaaa") == 11 - i + 1)
+end
+
+print"+"
+
+
+-------------------------------------------------------------------
+-- Tests for 're' module
+-------------------------------------------------------------------
+
+require "re"
+
+local match = re.match
+
+assert(match("a", ".") == 2)
+assert(match("a", "") == 1)
+assert(match("", "!.") == 1)
+assert(not match("a", " ! . "))
+assert(match("abcde", "  ( . . ) * ") == 5)
+assert(match("abbcde", " [a-c] +") == 5)
+assert(match("0abbc1de", "'0' [a-c]+ '1'") == 7)
+assert(match("0zz1dda", "'0' [^a-c]+ 'a'") == 8)
+assert(match("abbc--", " [%a-%c] +") == 5)
+assert(match("abbc--", " [a%-%c] +") == 2)
+assert(match("abbc--", " [a%-%cb] + ") == 7)
+assert(not match("abbcde", " [b-z] + "))
+assert(match("abb\"de", '"abb%"de"') == 7)
+assert(match("abceeef", "'ac'? 'ab'* 'c' {'e'*} / 'abceeef' ") == "eee")
+assert(match("abceeef", "'ac'? 'ab'* 'c' { 'f'+ } / 'abceeef' ") == 8)
+local t = {match("abceefe", "((&'e' {})? .)*")}
+checkeq(t, {4, 5, 7})
+
+assert(match("cccx" , "'ab'? ('ccc' / ('cde' / 'cd'*)? / 'ccc') 'x'+") == 5)
+assert(match("cdx" , "'ab'? ('ccc' / ('cde' / 'cd'*)? / 'ccc') 'x'+") == 4)
+assert(match("abcdcdx" , "'ab'? ('ccc' / ('cde' / 'cd'*)? / 'ccc') 'x'+") == 8)
+
+assert(match("abc", "a <- (. a)?") == 4)
+assert(match("(abc)", "balanced <- '(' ([^()] / balanced)* ')'"))
+assert(match("(a(b)((c) (d)))", "balanced <- '(' ([^()] / balanced)* ')'"))
+assert(not match("(a(b ((c) (d)))", "balanced <- '(' ([^()] / balanced)* ')'"))
+
+b = re.compile[[  balanced <- "(" ([^()] / balanced)* ")" ]]
+assert(b == m.P(b))
+assert(b:match"((((a))(b)))")
+
+local g = [[
+  S <- "0" B / "1" A / ""   # balanced strings
+  A <- "0" S / "1" A A      # one more 0
+  B <- "1" S / "0" B B      # one more 1
+]]
+assert(match("00011011", g) == 9)
+
+local g = [[
+  S <- ("0" B / "1" A)*
+  A <- "0" / "1" A A
+  B <- "1" / "0" B B
+]]
+assert(match("00011011", g) == 9)
+assert(match("000110110", g) == 9)
+assert(match("011110110", g) == 3)
+assert(match("000110010", g) == 1)
 
 
 print"OK"
