@@ -8,6 +8,8 @@
 </head>
 <body>
 
+<!-- $Id: doc.html,v 1.41 2007/10/10 18:56:44 roberto Exp $ -->
+
 <div id="container">
 	
 <div id="product">
@@ -18,7 +20,7 @@
   </div>
   <div id="product_name"><big><strong>LPeg</strong></big></div>
   <div id="product_description">
-     Parsing Expression Grammars For Lua, version 0.6
+     Parsing Expression Grammars For Lua, version 0.7
   </div>
 </div> <!-- id="product" -->
 
@@ -246,8 +248,7 @@ the match fails.
 
 <p>
 If the function is called with parameters <em>s</em> and <em>i</em>,
-its result is valid if
-<em>i &lt;= result &lt;= len(s) + 1</em>.
+its result is valid if it is in the range <em>[i, len(s) + 1]</em>.
 </p></li>
 
 </ul>
@@ -497,8 +498,8 @@ The following table summarizes the basic captures:
 <tbody><tr><td><b>Operation</b></td><td><b>What is Captured</b></td></tr>
 <tr><td><code>lpeg.C(patt)</code></td>
   <td>the match for <code>patt</code></td></tr>
-<tr><td><code>lpeg.Cc(value)</code></td>
-    <td>the given value (matches the empty string)</td></tr>
+<tr><td><code>lpeg.Cc(values)</code></td>
+    <td>the given values (matches the empty string)</td></tr>
 <tr><td><code>lpeg.Cp()</code></td>
     <td>the current position (matches the empty string)</td></tr>
 <tr><td><code>lpeg.Cs(patt)</code></td>
@@ -580,11 +581,11 @@ print(list:match("10,30,43"))   --&gt; 83
 </pre>
 
 
-<h3><code>lpeg.Cc (value)</code></h3>
+<h3><code>lpeg.Cc ({value})</code></h3>
 <p>
 Creates a <em>constant capture</em>.
 This pattern matches the empty string and
-produces <code>value</code> as its captured value.
+produces all given values as its captured values.
 </p>
 
 
@@ -728,7 +729,7 @@ given any arbitrary pattern <code>p</code>,
 returns a new pattern that searches for <code>p</code>
 anywhere in a string.
 There are several ways to do the search.
-one way is like this:
+One way is like this:
 </p>
 <pre class="example">
 function anywhere (p)
@@ -822,7 +823,7 @@ a function, or a table.
 </p>
 
 
-<h3>Comma-Separated Values (CSV)</h3>
+<h3><a name="CSV"></a>Comma-Separated Values (CSV)</h3>
 <p>
 This example breaks a string into comma-separated values,
 returning all fields:
@@ -991,12 +992,11 @@ local Open = "(" * Space
 local Close = ")" * Space
 
 -- Grammar
-local V = lpeg.V
-local Exp, Term, Factor = 1, 2, 3
-G = lpeg.P{ "Exp",
-  Exp = lpeg.Ct(V"Factor" * (FactorOp * V"Factor")^0);
-  Factor = lpeg.Ct(V"Term" * (TermOp * V"Term")^0);
-  Term = Number + Open * V"Exp" * Close;
+local Exp, Term, Factor = lpeg.V"Exp", lpeg.V"Term", lpeg.V"Factor"
+G = lpeg.P{ Exp,
+  Exp = lpeg.Ct(Factor * (FactorOp * Factor)^0);
+  Factor = lpeg.Ct(Term * (TermOp * Term)^0);
+  Term = Number + Open * Exp * Close;
 }
 
 G = Space * G * -1
@@ -1073,44 +1073,88 @@ and the new factor for each repetition.
 <p>
 The <code>re</code> Module
 (provided by file <code>re.lua</code> in the distribution)
-supports a conventional regular-expression syntax for pattern construction.
+supports a somewhat conventional regular-expression syntax
+for pattern construction.
 </p>
 
 <p>
 If offers two functions:
 </p>
 <ul>
-<li><p><code>re.compile(string)</code> compiles the given string and
+<li><p><code>re.compile(string, [, defs])</code>
+compiles the given string and
 returns an equivalent LPeg pattern.
 The given string may define either an expression or a grammar.
+The optional <code>defs</code> table provides extra Lua values
+to be used by the pattern.
+</p></li>
+<li><p><code>re.match(subject,pattern)</code> compiles the given pattern
+(a string) and matches it against the given subject.
 (It memoizes its results,
 so that there is no penalty in calling it multiple times
 with the same string.)
 </p></li>
-<li><p><code>re.match(subject,pattern)</code> compiles the given pattern
-(a string) and matches it against the given subject.
-</p></li>
 </ul>
 
 <p>
-The syntax for patterns for this module
-follows closely the original PEG notation.
-Like in the original PEG notation,
-spaces have no meaning,
-and literal strings must be enclosed between quotes
-(but <code>re</code> allows both double and single quotes).
-Anywhere any special character
-may be escaped by a prefixed <code>%</code>
-(not <code>\</code> like in original PEG).
+Like traditional regular expressions (but unlike original PEG),
+a character class may start with a <code>^</code> to complement
+its meaning.
 </p>
 
 <p>
-Like traditional regular expressions (but unlike original PEG),
-a character class may start with a <code>~</code> to complement
-its meaning.
-Curly brackets around a pattern capture its corresponding match.
-Empty curly brackets capture the current position.
-(Other captures are not supported in this version.)
+The next table summarizes <code>re</code>'s syntax.
+A <code>p</code> represents an arbitrary pattern.
+<table border="1">
+<tbody><tr><td><b>Syntax</b></td><td><b>Description</b></td></tr>
+<tr><td><code>( p )</code></td> <td>grouping</td></tr>
+<tr><td><code>'string'</code></td> <td>literal string</td></tr>
+<tr><td><code>"string"</code></td> <td>literal string</td></tr>
+<tr><td><code>[class]</code></td> <td>character class</td></tr>
+<tr><td><code>.</code></td> <td>any character</td></tr>
+<tr><td><code>name</code></td> <td>pattern <code>defs[name]</code>
+(if defined) or a non terminal defined by the current grammar</td></tr>
+<tr><td><code>{}</code></td> <td>position capture</td></tr>
+<tr><td><code>{ p }</code></td> <td>simple capture</td></tr>
+<tr><td><code>{~ p ~}</code></td> <td>substitution capture</td></tr>
+<tr><td><code>p?</code></td> <td>optional match</td></tr>
+<tr><td><code>p*</code></td> <td>zero or more repetitions</td></tr>
+<tr><td><code>p+</code></td> <td>one or more repetitions</td></tr>
+<tr><td><code>p{n}</code></td> <td>exactly <code>n</code> repetitions</td></tr>
+<tr><td><code>p{n,}</code></td>
+      <td>at least <code>n</code> repetitions</td></tr>
+<tr><td><code>p{n,m}</code></td>
+      <td>between <code>n</code> and <code>m</code> repetitions</td></tr>
+<tr><td><code>p -> 'string'</code></td> <td>string capture</td></tr>
+<tr><td><code>p -> "string"</code></td> <td>string capture</td></tr>
+<tr><td><code>p -> {}</code></td> <td>table capture</td></tr>
+<tr><td><code>p -> name</code></td> <td>function/query/string capture
+equivalent to <code>p / defs[name]</code></td></tr>
+<tr><td><code>&p</code></td> <td>and predicate</td></tr>
+<tr><td><code>!p</code></td> <td>not predicate</td></tr>
+<tr><td><code>p1 p2</code></td> <td>concatenation</td></tr>
+<tr><td><code>p1 / p2</code></td> <td>ordered choice</td></tr>
+<tr><td><code>name &lt;- p</code></td> <td>grammar rule</td></tr>
+</tbody></table>
+<p>
+Any space appearing in a syntax description can be
+replaced by zero or more space characters and comments
+(<code>--</code> until end of line).
+</p>
+
+<p>
+Character classes define sets of characters.
+An initial <code>^</code> complements the resulting set.
+A range <em>x</em><code>-</code><em>y</em> includes in the set
+all characters with codes between the codes of <em>x</em> and <em>y</em>.
+A simple character includes itself in the set.
+The only special characters inside a class are <code>^</code>
+(special only if it is the first character);
+<code>]</code>
+(can be included in the set as the first character,
+after the optional <code>^</code>);
+and <code>-</code>
+(can be included in the set as the first or the last character).
 </p>
 
 <p>
@@ -1122,12 +1166,24 @@ Lua expression in the <a href="#balanced">balanced parentheses</a> example:
 b = re.compile[[  balanced &lt;- '(' ([^()] / balanced)* ')'  ]]
 </pre>
 
+<p>
+The next example replicates the <a href="#CSV">CSV decoder</a>:
+</p>
+<pre>
+record = re.compile[[
+  record <- ( field (',' field)* ) -> {} ('\n' / !.)
+  field <- escaped / nonescaped
+  nonescaped <- { [^,"\n]* }
+  escaped <- '"' {~ ([^"] / '""' -> '"')* ~} '"'
+]]
+</pre>
+
 
 
 <h2><a name="download"></a>Download</h2>
 
 <p>LPeg 
-<a href="http://www.inf.puc-rio.br/~roberto/lpeg-0.6.tar.gz">source code</a>.</p>
+<a href="http://www.inf.puc-rio.br/~roberto/lpeg-0.7.tar.gz">source code</a>.</p>
 
 
 <h2><a name="license">License</a></h2>
@@ -1171,7 +1227,7 @@ THE SOFTWARE.
 
 <div id="about">
 <p><small>
-$Id: doc.html,v 1.33 2007/04/12 14:38:05 roberto Exp $
+$Id: doc.html,v 1.41 2007/10/10 18:56:44 roberto Exp $
 </small></p>
 </div> <!-- id="about" -->
 
