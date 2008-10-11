@@ -1,26 +1,33 @@
+LUADIR = /usr/include/lua5.1/
+
+COPT = -O2 -DNDEBUG
+
 CWARNS = -Wall -Wextra -pedantic \
         -Waggregate-return \
+	-Wbad-function-cast \
         -Wcast-align \
+        -Wcast-qual \
+	-Wdeclaration-after-statement \
+	-Wdisabled-optimization \
         -Wmissing-prototypes \
         -Wnested-externs \
         -Wpointer-arith \
         -Wshadow \
+	-Wsign-compare \
+	-Wstrict-prototypes \
+	-Wundef \
         -Wwrite-strings \
-        -Wcast-qual
+	#  -Wunreachable-code \
 
-LUADIR = /home/roberto/prj/sw/oldlua/lua-5.1.2/src
-COPT = -O2 -DNDEBUG
-CFLAGS = $(CWARNS) -ansi -I$(LUADIR) -shared -o lpeg.so
+
+CFLAGS = $(CWARNS) $(COPT) -ansi -I$(LUADIR)
+DLLFLAGS = -shared
 CC = gcc
 
-lpeg.so: lpeg.c
-	$(CC) $(COPT) $(CFLAGS) lpeg.c
+lpeg.so: lpeg.o
+	$(CC) $(DLLFLAGS) lpeg.o -o lpeg.so
 
-deb:	lpeg.c	
-	$(CC) -g $(CFLAGS) lpeg.c; touch deb; rm -f opt
-
-opt:	lpeg.c	
-	$(CC) $(COPT) $(CFLAGS) lpeg.c; touch opt; rm -f deb
+lpeg.o:	makefile lpeg.c
 
 test: test.lua re.lua lpeg.so
 	test.lua
