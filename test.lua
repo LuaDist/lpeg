@@ -1,6 +1,6 @@
 #!/usr/bin/env lua5.1
 
--- $Id: test.lua,v 1.81 2010/11/03 17:07:50 roberto Exp $
+-- $Id: test.lua,v 1.82 2010/12/03 14:49:54 roberto Exp $
 
 require"strict"    -- just to be pedantic
 
@@ -347,6 +347,9 @@ checkerr("rule <a table> is not defined", m.match, { m.V({}) }, "")
 
 print('+')
 
+
+-- bug in 0.10 (rechecking a grammar, after tail-call optimization)
+m.P{ m.P { (m.P(3) + "xuxu")^0 * m.V"xuxu", xuxu = m.P(1) } }
 
 local V = m.V
 
