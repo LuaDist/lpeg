@@ -1,5 +1,5 @@
 /*
-** $Id: lpeg.c,v 1.113 2010/12/03 14:49:19 roberto Exp $
+** $Id: lpeg.c,v 1.114 2011/02/16 15:02:20 roberto Exp $
 ** LPeg - PEG pattern matching for Lua
 ** Copyright 2007, Lua.org & PUC-Rio  (see 'lpeg.html' for license)
 ** written by Roberto Ierusalimschy
@@ -247,7 +247,7 @@ static int getposition (lua_State *L, int t, int i) {
 
 /*
 ** {======================================================
-** Printing patterns
+** Printing patterns (for debugging)
 ** =======================================================
 */
 
@@ -352,6 +352,7 @@ static void printpatt (Instruction *p) {
 }
 
 
+#if 0
 static void printcap (Capture *cap) {
   printcapkind(cap->kind);
   printf(" (idx: %d - size: %d) -> %p\n", cap->idx, cap->siz, cap->s);
@@ -361,6 +362,7 @@ static void printcap (Capture *cap) {
 static void printcaplist (Capture *cap) {
   for (; cap->s; cap++) printcap(cap);
 }
+#endif
 
 /* }====================================================== */
 
@@ -788,8 +790,7 @@ static void checkrule (lua_State *L, Instruction *op, int from, int to,
     if (op[i].i.code == IPartialCommit && op[i].i.offset < 0) {  /* loop? */
       int start = dest(op, i);
       assert(op[start - 1].i.code == IChoice &&
-             /* dest(op, start - 1) == target(op, i + 1)); */
-                dest(op, start - 1) == i + 1);
+             dest(op, start - 1) == target(op, i + 1));
       if (start <= lastopen) {  /* loop does contain an open call? */
         if (!verify(L, op, op + start, op + i, postable, rule)) /* check body */
           luaL_error(L, "possible infinite loop in %s", val2str(L, rule));
