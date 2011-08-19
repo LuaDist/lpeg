@@ -1,7 +1,7 @@
 --- This file is part of LuaDist project
 
 name = "lpeg"
-version = "0.9"
+version = "0.10"
 
 desc = "Parsing Expression Grammars For Lua"
 author = "Roberto Ierusalimschy"
