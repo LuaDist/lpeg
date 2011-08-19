@@ -10,6 +10,8 @@ HISTORY for LPeg 0.10
   + works with Lua 5.2
   + consumes less C stack
 
+  - "and" predicates do not keep captures
+
 * Changes from version 0.8 to 0.9
   -------------------------------  
   + The accumulator capture was replaced by a fold capture;

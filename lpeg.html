@@ -10,7 +10,7 @@
 </head>
 <body>
 
-<!-- $Id: lpeg.html,v 1.60 2010/11/03 17:42:07 roberto Exp $ -->
+<!-- $Id: lpeg.html,v 1.64 2011/02/16 15:01:58 roberto Exp $ -->
 
 <div id="container">
 	
@@ -705,7 +705,7 @@ another complete capture.
 </p>
 
 
-<h3><a name="cap-cc"></a><code>lpeg.Cc ({value})</code></h3>
+<h3><a name="cap-cc"></a><code>lpeg.Cc ([value, ...])</code></h3>
 <p>
 Creates a <em>constant capture</em>.
 This pattern matches the empty string and
@@ -1243,8 +1243,9 @@ check whether it has the same number of equal signs.
 </p>
 
 <pre class="example">
-open = "[" * lpeg.Cg(lpeg.P"="^0, "init") * "[" * lpeg.P"\n"^-1
-close = "]" * lpeg.C(lpeg.P"="^0) * "]"
+equals = lpeg.P"="^0
+open = "[" * lpeg.Cg(equals, "init") * "[" * lpeg.P"\n"^-1
+close = "]" * lpeg.C(equals) * "]"
 closeeq = lpeg.Cmt(close * lpeg.Cb("init"), function (s, i, a, b) return a == b end)
 string = open * lpeg.C((lpeg.P(1) - closeeq)^0) * close /
   function (s, o) return s end
@@ -1368,7 +1369,7 @@ and the new factor for each repetition.
 <h2><a name="download"></a>Download</h2>
 
 <p>LPeg 
-<a href="http://www.inf.puc-rio.br/~roberto/lpeg/lpeg-0.10.tar.gz">source code</a>.</p>
+<a href="http://www.inf.puc-rio.br/~roberto/lpeg/lpeg-0.10.2.tar.gz">source code</a>.</p>
 
 
 <h2><a name="license">License</a></h2>
@@ -1412,7 +1413,7 @@ THE SOFTWARE.
 
 <div id="about">
 <p><small>
-$Id: lpeg.html,v 1.60 2010/11/03 17:42:07 roberto Exp $
+$Id: lpeg.html,v 1.64 2011/02/16 15:01:58 roberto Exp $
 </small></p>
 </div> <!-- id="about" -->
 

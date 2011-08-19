@@ -1,4 +1,4 @@
--- $Id: re.lua,v 1.38 2010/11/03 17:21:07 roberto Exp $
+-- $Id: re.lua,v 1.39 2010/11/04 19:44:18 roberto Exp $
 
 -- imported functions and modules
 local tonumber, type, print, error = tonumber, type, print, error
@@ -102,7 +102,7 @@ local function equalcap (s, i, c)
 end
 
 
-local S = (Predef.space + "--" * (any - Predef.nl)^0)^0
+local S = (m.S(" \f\n\r\t\v") + "--" * (any - Predef.nl)^0)^0
 
 local name = m.R("AZ", "az") * m.R("AZ", "az", "__", "09")^0
 
