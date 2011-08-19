@@ -10,7 +10,7 @@ include(dist.cmake)
 
 install_lua_module(lpeg lpeg.c)
 install_lua_module(re re.lua)
-install_doc(doc.html lpeg-128.gif)
+install_doc(lpeg.html re.html lpeg-128.gif)
 install_test(test.lua)
 
 add_lua_test(test.lua)
