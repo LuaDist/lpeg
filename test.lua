@@ -1,5 +1,7 @@
 #!/usr/local/bin/lua5.1
 
+-- $Id: test.lua,v 1.45 2007/10/10 18:52:03 roberto Exp $
+
 local m = require"lpeg"
 
 local function checkeq (x, y)
@@ -121,6 +123,17 @@ checkeq(a, {"123"})
 a = {m.match(m.C(digit^1 * m.Cc"d") + m.C(letter^1 * m.Cc"l"), "abcd")}
 checkeq(a, {"abcd", "l"})
 
+a = {m.match(m.Cc(10,20,30) * 'a' * m.Cp(), 'aaa')}
+checkeq(a, {10,20,30,2})
+a = {m.match(m.Cp() * m.Cc(10,20,30) * 'a' * m.Cp(), 'aaa')}
+checkeq(a, {1,10,20,30,2})
+a = m.match(m.Ct(m.Cp() * m.Cc(10,20,30) * 'a' * m.Cp()), 'aaa')
+checkeq(a, {1,10,20,30,2})
+a = m.match(m.Ct(m.Cp() * m.Cc(7,8) * m.Cc(10,20,30) * 'a' * m.Cp()), 'aaa')
+checkeq(a, {1,7,8,10,20,30,2})
+a = {m.match(m.Cc() * m.Cc() * m.Cc(1) * m.Cc(2,3,4) * m.Cc() * 'a', 'aaa')}
+checkeq(a, {1,2,3,4})
+
 a = {m.match(m.Cp() * letter^1 * m.Cp(), "abcd")}
 checkeq(a, {1, 5})
 
@@ -147,7 +160,7 @@ for n = 1, 550 do
   assert(m.C(m.C(n)):match(x) == x)
   assert(m.P(-n):match(x_1) == 1)
   assert(not m.P(-n):match(x))
-  assert(n < 13 or m.match(m.Cc(20) * (n - 13) * m.P(10) * 3, x) == 20)
+  assert(n < 13 or m.match(m.Cc(20) * ((n - 13) * m.P(10)) * 3, x) == 20)
   local n3 = math.floor(n/3)
   assert(m.match(n3 * m.Cp() * n3 * n3, x) == n3 + 1)
 end
@@ -437,6 +450,13 @@ checkeq(t, {4})
 t = m.match(m.C(m.C(1)^0)/f, "abc")
 checkeq(t, {"abc", "a", "b", "c"})
 
+g = function (...) return 1, ... end
+t = {m.match(m.C(1)^0/g/g, "abc")}
+checkeq(t, {1, 1, "a", "b", "c"})
+
+t = {m.match(m.Cc(nil,nil,4) * m.Cc(nil,3) * m.Cc(nil, nil) / g / g, "")}
+t1 = {1,1,nil,nil,4,nil,3,nil,nil}
+for i=1,10 do assert(t[i] == t1[i]) end
 
 t = {m.match((m.C(1) / function (x) return x, x.."x" end)^0, "abc")}
 checkeq(t, {"a", "ax", "b", "bx", "c", "cx"})
@@ -518,6 +538,7 @@ local function find (p, s)
   return m.match(basiclookfor(p), s)
 end
 
+
 local function badgrammar (g, exp)
   local err, msg = pcall(m.P, g)
   assert(not err)
@@ -533,6 +554,8 @@ badgrammar({[1] = -m.P("a") * m.V(1)}, "rule '1'")
 badgrammar({[1] = -1 * m.V(1)}, "rule '1'")
 badgrammar({[1] = 1 * m.V(2), [2] = m.V(2)}, "rule '2'")
 badgrammar({[1] = m.P(0), [2] = 1 * m.V(1)^0}, "loop in rule '2'")
+badgrammar({ lpeg.V(2), lpeg.V(3)^0, lpeg.P"" }, "rule '2'")
+badgrammar({ lpeg.V(2) * lpeg.V(3)^0, lpeg.V(3)^0, lpeg.P"" }, "rule '1'")
 
 
 -- simple tests for maximum sizes:
@@ -573,24 +596,30 @@ print"+"
 
 require "re"
 
-local match = re.match
+local match, compile = re.match, re.compile
 
 assert(match("a", ".") == 2)
-assert(match("a", "") == 1)
+assert(match("a", "''") == 1)
 assert(match("", "!.") == 1)
 assert(not match("a", " ! . "))
 assert(match("abcde", "  ( . . ) * ") == 5)
 assert(match("abbcde", " [a-c] +") == 5)
 assert(match("0abbc1de", "'0' [a-c]+ '1'") == 7)
 assert(match("0zz1dda", "'0' [^a-c]+ 'a'") == 8)
-assert(match("abbc--", " [%a-%c] +") == 5)
-assert(match("abbc--", " [a%-%c] +") == 2)
-assert(match("abbc--", " [a%-%cb] + ") == 7)
+assert(match("abbc--", " [a-c] + +") == 5)
+assert(match("abbc--", " [ac-] +") == 2)
+assert(match("abbc--", " [-acb] + ") == 7)
 assert(not match("abbcde", " [b-z] + "))
-assert(match("abb\"de", '"abb%"de"') == 7)
+assert(match("abb\"de", '"abb"["]"de"') == 7)
 assert(match("abceeef", "'ac'? 'ab'* 'c' {'e'*} / 'abceeef' ") == "eee")
 assert(match("abceeef", "'ac'? 'ab'* 'c' { 'f'+ } / 'abceeef' ") == 8)
 local t = {match("abceefe", "((&'e' {})? .)*")}
+checkeq(t, {4, 5, 7})
+local t = {match("abceefe", "((&&'e' {})? .)*")}
+checkeq(t, {4, 5, 7})
+local t = {match("abceefe", "( ( ! ! 'e' {} ) ? . ) *")}
+checkeq(t, {4, 5, 7})
+local t = {match("abceefe", "((&!&!'e' {})? .)*")}
 checkeq(t, {4, 5, 7})
 
 assert(match("cccx" , "'ab'? ('ccc' / ('cde' / 'cd'*)? / 'ccc') 'x'+") == 5)
@@ -602,14 +631,14 @@ assert(match("(abc)", "balanced <- '(' ([^()] / balanced)* ')'"))
 assert(match("(a(b)((c) (d)))", "balanced <- '(' ([^()] / balanced)* ')'"))
 assert(not match("(a(b ((c) (d)))", "balanced <- '(' ([^()] / balanced)* ')'"))
 
-b = re.compile[[  balanced <- "(" ([^()] / balanced)* ")" ]]
+b = compile[[  balanced <- "(" ([^()] / balanced)* ")" ]]
 assert(b == m.P(b))
 assert(b:match"((((a))(b)))")
 
 local g = [[
-  S <- "0" B / "1" A / ""   # balanced strings
-  A <- "0" S / "1" A A      # one more 0
-  B <- "1" S / "0" B B      # one more 1
+  S <- "0" B / "1" A / ""   -- balanced strings
+  A <- "0" S / "1" A A      -- one more 0
+  B <- "1" S / "0" B B      -- one more 1
 ]]
 assert(match("00011011", g) == 9)
 
@@ -623,6 +652,58 @@ assert(match("000110110", g) == 9)
 assert(match("011110110", g) == 3)
 assert(match("000110010", g) == 1)
 
+s = "aaaaaaaaaaaaaaaaaaaaaaaa"
+assert(match(s, "'a'{3}") == 4)
+assert(match(s, "'a'{0}") == 1)
+assert(match(s, "'a'{3,}") == s:len() + 1)
+assert(not match(s, "'a'{30,}"))
+assert(match(s, "'a' { 3 , 30 } ") == s:len() + 1)
+assert(match(s, "'a'{3,5}") == 6)
+for i = 1, s:len() do
+  assert(match(s, string.format("'a'{%d,%d}", i, i)) == i + 1)
+  assert(match(s, string.format("'a'{%d}", i)) == i + 1)
+end
+assert(not match(s, "'a'{3,2}"))
+assert(match("01234567890123456789", "[0-9]{3}+") == 19)
+
+
+assert(match("01234567890123456789", "({....}{...}) -> '%2%1'") == "4560123")
+t = match("0123456789", "{.}*->{}")
+checkeq(t, {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"})
+assert(match("012345", "( (..) -> '%0%0' ) -> {}")[1] == "0101")
+
+any = m.P(1)
+eqcharset(compile"[]]", "]")
+eqcharset(compile"[][]", m.S"[]")
+eqcharset(compile"[]-]", m.S"-]")
+eqcharset(compile"[-]", m.S"-")
+eqcharset(compile"[az-]", m.S"a-z")
+eqcharset(compile"[-az]", m.S"a-z")
+eqcharset(compile"[a-z]", m.R"az")
+eqcharset(compile"[]['\"]", m.S[[]['"]])
+
+eqcharset(compile"[^]]", any - "]")
+eqcharset(compile"[^][]", any - m.S"[]")
+eqcharset(compile"[^]-]", any - m.S"-]")
+eqcharset(compile"[^]-]", any - m.S"-]")
+eqcharset(compile"[^-]", any - m.S"-")
+eqcharset(compile"[^az-]", any - m.S"a-z")
+eqcharset(compile"[^-az]", any - m.S"a-z")
+eqcharset(compile"[^a-z]", any - m.R"az")
+eqcharset(compile"[^]['\"]", any - m.S[[]['"]])
+
+
+-- tests for 're' with pre-definitions
+defs = {digits = m.R"09", letters = m.R"az"}
+e = compile("letters (letters / digits)*", defs)
+assert(e:match"x123" == 5)
+
+e = compile("{[0-9]+'.'?[0-9]*} -> sin", math)
+assert(e:match("2.34") == math.sin(2.34))
+
+assert(not pcall(compile, "x <- 'a'  x <- 'b'"))
+assert(not pcall(compile, "x <- 'a'", {x = 3}))
+assert(not pcall(compile, "'x' -> x", {x = 3}))
 
 print"OK"
 

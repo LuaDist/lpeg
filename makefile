@@ -22,5 +22,5 @@ deb:	lpeg.c
 opt:	lpeg.c	
 	$(CC) $(COPT) $(CFLAGS) lpeg.c; touch opt; rm -f deb
 
-test: test.lua lpeg.so
+test: test.lua re.lua lpeg.so
 	test.lua
