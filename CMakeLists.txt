@@ -6,7 +6,8 @@
 
 project(lpeg C)
 cmake_minimum_required(VERSION 2.6)
-include(dist.cmake)
+include(cmake/dist.cmake)
+include(cmake/lua.cmake)
 
 install_lua_module(lpeg lpeg.c)
 install_lua_module(re re.lua)
@@ -15,3 +16,4 @@ install_data(HISTORY)
 install_test(test.lua)
 
 add_lua_test(test.lua)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/strict.lua" "") # for tests
