@@ -4,19 +4,19 @@
 # For details see the COPYRIGHT file distributed with LuaDist.
 # Please note that the package source code is licensed under its own license.
 
-project(lpeg C)
-cmake_minimum_required(VERSION 2.6)
-include(cmake/dist.cmake)
-include(lua)
+project ( lpeg C )
+cmake_minimum_required ( VERSION 2.8 )
+include ( cmake/dist.cmake )
+include ( lua )
 
-install_lua_module(lpeg lpeg.c)
-install_lua_module(re re.lua)
-install_doc(lpeg.html re.html lpeg-128.gif)
-install_data(HISTORY)
-install_test(test.lua)
+install_lua_module ( lpeg lpeg.c )
+install_lua_module ( re re.lua )
+install_doc ( lpeg.html re.html lpeg-128.gif )
+install_data ( HISTORY )
+install_test ( test.lua )
 
 # for tests
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/strict.lua" "")
-add_lua_module(strict ${CMAKE_CURRENT_BINARY_DIR}/strict.lua)
+file ( WRITE "${CMAKE_CURRENT_BINARY_DIR}/strict.lua" "" )
+add_lua_module ( strict ${CMAKE_CURRENT_BINARY_DIR}/strict.lua )
 
-add_lua_test(test.lua)
+add_lua_test ( test.lua )
