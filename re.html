@@ -10,7 +10,7 @@
 </head>
 <body>
 
-<!-- $Id: re.html,v 1.17 2011/01/10 15:08:06 roberto Exp $ -->
+<!-- $Id: re.html,v 1.20 2013/03/26 20:11:40 roberto Exp $ -->
 
 <div id="container">
 	
@@ -75,6 +75,7 @@ Constructions are listed in order of decreasing precedence.
 <tr><td><code>{: p :}</code></td> <td>anonymous group capture</td></tr>
 <tr><td><code>{:name: p :}</code></td> <td>named group capture</td></tr>
 <tr><td><code>{~ p ~}</code></td> <td>substitution capture</td></tr>
+<tr><td><code>{| p |}</code></td> <td>table capture</td></tr>
 <tr><td><code>=name</code></td> <td>back reference
 </td></tr>
 <tr><td><code>p ?</code></td> <td>optional match</td></tr>
@@ -87,7 +88,7 @@ Constructions are listed in order of decreasing precedence.
       <td>at most <code>n</code> repetitions</td></tr>
 <tr><td><code>p -&gt; 'string'</code></td> <td>string capture</td></tr>
 <tr><td><code>p -&gt; "string"</code></td> <td>string capture</td></tr>
-<tr><td><code>p -&gt; {}</code></td> <td>table capture</td></tr>
+<tr><td><code>p -&gt; num</code></td> <td>numbered capture</td></tr>
 <tr><td><code>p -&gt; name</code></td> <td>function/query/string capture
 equivalent to <code>p / defs[name]</code></td></tr>
 <tr><td><code>p =&gt; name</code></td> <td>match-time capture
@@ -149,8 +150,8 @@ to be used by the pattern.
 <p>
 Searches the given pattern in the given subject.
 If it finds a match,
-returns the index where this occurrence starts,
-plus the captures made by the pattern (if any).
+returns the index where this occurrence starts and
+the index where it ends.
 Otherwise, returns nil.
 </p>
 
@@ -161,9 +162,16 @@ As usual in Lua libraries,
 a negative value counts from the end.
 </p>
 
+<h3><code>re.gsub (subject, pattern, replacement)</code></h3>
+<p>
+Does a <em>global substitution</em>,
+replacing all occurrences of <code>pattern</code>
+in the given <code>subject</code> by <code>replacement</code>.
+
 <h3><code>re.match (subject, pattern)</code></h3>
 <p>
-Matches the given pattern against the given subject.
+Matches the given pattern against the given subject,
+returning all captures.
 </p>
 
 <h3><code>re.updatelocale ()</code></h3>
@@ -191,6 +199,9 @@ print(re.find("the number 423 is odd", "{[0-9]+}"))  --&gt; 12    423
 -- returns all words in a string
 print(re.match("the number 423 is odd", "({%a+} / .)*"))
 --&gt; the    number    is    odd
+
+print(re.gsub("hello World", "[aeiou]", "."))
+--&gt; h.ll. W.rld
 </pre>
 
 
@@ -219,7 +230,7 @@ The next example replicates the <a href="lpeg.html#CSV">CSV decoder</a>:
 </p>
 <pre class="example">
 record = re.compile[[
-  record &lt;- ( field (',' field)* ) -&gt; {} (%nl / !.)
+  record &lt;- {| field (',' field)* |} (%nl / !.)
   field &lt;- escaped / nonescaped
   nonescaped &lt;- { [^,"%nl]* }
   escaped &lt;- '"' {~ ([^"] / '""' -&gt; '"')* ~} '"'
@@ -232,9 +243,9 @@ The next example matches Lua long strings:
 </p>
 <pre class="example">
 c = re.compile([[
-  longstring &lt;- ('[' {:eq: '='* :} '[' close) -&gt; void
+  longstring &lt;- ('[' {:eq: '='* :} '[' close)
   close &lt;- ']' =eq ']' / . close
-]], {void = function () end})
+]])
 
 print(c:match'[==[]]===]]]]==]===[]')   --&gt; 17
 </pre>
@@ -262,8 +273,8 @@ terminals will be represented by their corresponding strings:
 </p>
 <pre class="example">
 c = re.compile[[
-      listname &lt;- (name s)* -&gt; {}
-      name &lt;- {[a-z][a-z]*} -&gt; {}
+      listname &lt;- {| (name s)* |}
+      name &lt;- {| {[a-z][a-z]*} |}
       s &lt;- %s*
 ]]
 </pre>
@@ -288,8 +299,8 @@ We can add such a tag using
 </p>
 <pre class="example">
 x = re.compile[[
-      listname <- ({:tag: '' -> 'list':} (name s)*) -> {}
-      name <- ({:tag: '' -> 'id':} {[a-z][a-z]*}) -> {}
+      listname <- {| {:tag: '' -> 'list':} (name s)* |}
+      name <- {| {:tag: '' -> 'id':} {[a-z][a-z]*} |}
       s <- ' '*
 ]]
 </pre>
@@ -314,8 +325,8 @@ respecting the indentation:
 </p>
 <pre class="example">
 p = re.compile[[
-  block &lt;- ({:ident:' '*:} line
-           ((=ident !' ' line) / &(=ident ' ') block)*) -&gt; {}
+  block &lt;- {| {:ident:' '*:} line
+           ((=ident !' ' line) / &(=ident ' ') block)* |}
   line &lt;- {[^%nl]*} %nl
 ]]
 </pre>
@@ -476,7 +487,7 @@ THE SOFTWARE.
 
 <div id="about">
 <p><small>
-$Id: re.html,v 1.17 2011/01/10 15:08:06 roberto Exp $
+$Id: re.html,v 1.20 2013/03/26 20:11:40 roberto Exp $
 </small></p>
 </div> <!-- id="about" -->
 

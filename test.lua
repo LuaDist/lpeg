@@ -1,23 +1,26 @@
 #!/usr/bin/env lua5.1
 
--- $Id: test.lua,v 1.82 2010/12/03 14:49:54 roberto Exp $
+-- $Id: test.lua,v 1.97 2013/03/27 15:50:30 roberto Exp $
 
-require"strict"    -- just to be pedantic
+-- require"strict"    -- just to be pedantic
 
 local m = require"lpeg"
 
-local debug = require"debug"
+
+-- for general use
+local a, b, c, d, e, f, g, p, t
 
 
 -- compatibility with Lua 5.2
-local unpack = table.unpack or unpack
+local unpack = rawget(table, "unpack") or unpack
+local loadstring = rawget(_G, "loadstring") or load
 
 
 -- most tests here do not need much stack space
 m.setmaxstack(5)
 
-any = m.P(1)
-space = m.S" \t\n"^0
+local any = m.P(1)
+local space = m.S" \t\n"^0
 
 local function checkeq (x, y, p)
 if p then print(x,y) end
@@ -29,7 +32,7 @@ if p then print(x,y) end
 end
 
 
-mt = getmetatable(m.P(1))
+local mt = getmetatable(m.P(1))
 
 
 local allchar = {}
@@ -84,7 +87,6 @@ do
 end
 
 
-
 assert(m.match(3, "aaaa"))
 assert(m.match(4, "aaaa"))
 assert(not m.match(5, "aaaa"))
@@ -99,11 +101,11 @@ assert(m.match("al", "alo") == 3)
 assert(not m.match("alu", "alo"))
 assert(m.match(true, "") == 1)
 
-digit = m.S"0123456789"
-upper = m.S"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-lower = m.S"abcdefghijklmnopqrstuvwxyz"
-letter = m.S"" + upper + lower
-alpha = letter + digit + m.R()
+local digit = m.S"0123456789"
+local upper = m.S"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+local lower = m.S"abcdefghijklmnopqrstuvwxyz"
+local letter = m.S"" + upper + lower
+local alpha = letter + digit + m.R()
 
 eqcharset(m.S"", m.P(false))
 eqcharset(upper, m.R("AZ"))
@@ -120,7 +122,7 @@ eqcharset(m.S"\1\0\2", m.R"\0\2")
 eqcharset(m.S"\1\0\2", m.R"\1\2" + "\0")
 eqcharset(m.S"\1\0\2" - "\0", m.R"\1\2")
 
-word = alpha^1 * (1 - alpha)^0
+local word = alpha^1 * (1 - alpha)^0
 
 assert((word^0 * -1):match"alo alo")
 assert(m.match(word^1 * -1, "alo alo"))
@@ -131,7 +133,7 @@ assert(not m.match(word^-1 * -1, "alo alo"))
 assert(m.match(word^-2 * -1, "alo alo"))
 assert(m.match(word^-3 * -1, "alo alo"))
 
-eos = m.P(-1)
+local eos = m.P(-1)
 
 assert(m.match(digit^0 * letter * digit * eos, "1298a1"))
 assert(not m.match(digit^0 * letter * eos, "1257a1"))
@@ -200,7 +202,7 @@ for i = 250,260 do
 end
 
 
--- tests for any*n
+-- tests for any*n and any*-n
 for n = 1, 550 do
   local x_1 = string.rep('x', n - 1)
   local x = x_1 .. 'a'
@@ -216,9 +218,11 @@ for n = 1, 550 do
   assert(m.match(n3 * m.Cp() * n3 * n3, x) == n3 + 1)
 end
 
+-- true values
 assert(m.P(0):match("x") == 1)
 assert(m.P(0):match("") == 1)
 assert(m.C(0):match("x") == "")
+
 assert(m.match(m.Cc(0) * m.P(10) + m.Cc(1) * "xuxu", "xuxu") == 1)
 assert(m.match(m.Cc(0) * m.P(10) + m.Cc(1) * "xuxu", "xuxuxuxuxu") == 0)
 assert(m.match(m.C(m.P(2)^1), "abcde") == "abcd")
@@ -257,6 +261,21 @@ assert(m.match(m.P"ab" + "cd" + m.P"e"^1 + "x", "eeex") == 4)
 assert(m.match(m.P"ab" + "cd" + m.P"e"^1 + "x", "cd") == 3)
 assert(m.match(m.P"ab" + "cd" + m.P"e"^1 + "x", "x") == 2)
 assert(m.match(m.P"ab" + "cd" + m.P"e"^1 + "x" + "", "zee") == 1)
+assert(not m.match(("aa" * m.P"bc"^-1 + "aab") * "e", "aabe"))
+
+assert(m.match("alo" * (m.P"\n" + -1), "alo") == 4)
+
+-- optimizations with optional parts
+assert(m.match(("ab" * -m.P"c")^-1, "abc") == 1)
+assert(m.match(("ab" * #m.P"c")^-1, "abd") == 1)
+assert(m.match(("ab" * m.B"c")^-1, "ab") == 1)
+assert(m.match(("ab" * m.P"cd"^0)^-1, "abcdcdc") == 7)
+
+assert(m.match(m.P"ab"^-1 - "c", "abcd") == 3)
+
+p = ('Aa' * ('Bb' * ('Cc' * m.P'Dd'^0)^0)^0)^-1
+assert(p:match("AaBbCcDdBbCcDdDdDdBb") == 21)
+ 
 
 pi = "3.14159 26535 89793 23846 26433 83279 50288 41971 69399 37510"
 assert(m.match(m.Cs((m.P"1" / "a" + m.P"5" / "b" + m.P"9" / "c" + 1)^0), pi) ==
@@ -268,6 +287,17 @@ print"+"
 assert(m.match((m.P(3) +  4 * m.Cp()) * "a", "abca") == 5)
 t = {m.match(((m.P"a" + m.Cp()) * m.P"x")^0, "axxaxx")}
 checkeq(t, {3, 6})
+
+
+-- tests for numbered captures
+p = m.C(1)
+assert(m.match(m.C(m.C(p * m.C(2)) * m.C(3)) / 3, "abcdefgh") == "a")
+assert(m.match(m.C(m.C(p * m.C(2)) * m.C(3)) / 1, "abcdefgh") == "abcdef")
+assert(m.match(m.C(m.C(p * m.C(2)) * m.C(3)) / 4, "abcdefgh") == "bc")
+assert(m.match(m.C(m.C(p * m.C(2)) * m.C(3)) / 0, "abcdefgh") == 7)
+
+a, b, c = m.match(p * (m.C(p * m.C(2)) * m.C(3) / 4) * p, "abcdefgh")
+assert(a == "a" and b == "efg" and c == "h")
 
 -- test for table captures
 t = m.match(m.Ct(letter^1), "alo")
@@ -300,50 +330,52 @@ p = m.Cg(m.Cg(m.Cg(m.C(1))^0) * m.Cg(m.Cc(1) * m.Cc(2)))
 t = {p:match'abc'}
 checkeq(t, {'a', 'b', 'c', 1, 2})
 
--- test for non-pattern as arguments to pattern functions
-
-p = { ('a' * m.V(1))^-1 } * m.P'b' * { 'a' * m.V(2); m.V(1)^-1 }
-assert(m.match(p, "aaabaac") == 7)
-
--- a large table capture
-t = m.match(m.Ct(m.C('a')^0), string.rep("a", 10000))
-assert(#t == 10000 and t[1] == 'a' and t[#t] == 'a')
+p = m.Ct(m.Cg(m.Cc(10), "hi") * m.C(1)^0 * m.Cg(m.Cc(20), "ho"))
+t = p:match''
+checkeq(t, {hi = 10, ho = 20})
+t = p:match'abc'
+checkeq(t, {hi = 10, ho = 20, 'a', 'b', 'c'})
 
 
--- test for errors
+-- test for error messages
 local function checkerr (msg, ...)
   assert(m.match({ m.P(msg) + 1 * m.V(1) }, select(2, pcall(...))))
 end
 
--- checkerr("rule '1' is left recursive", m.match, { m.V(1) * 'a' }, "a")
-checkerr("rule '1' outside a grammar", m.match, m.V(1), "")
-checkerr("rule 'hiii' outside a grammar", m.match, m.V('hiii'), "")
-checkerr("rule 'hiii' is not defined", m.match, { m.V('hiii') }, "")
-checkerr("rule <a table> is not defined", m.match, { m.V{} }, "")
+checkerr("rule '1' may be left recursive", m.match, { m.V(1) * 'a' }, "a")
+checkerr("rule '1' used outside a grammar", m.match, m.V(1), "")
+checkerr("rule 'hiii' used outside a grammar", m.match, m.V('hiii'), "")
+checkerr("rule 'hiii' undefined in given grammar", m.match, { m.V('hiii') }, "")
+checkerr("undefined in given grammar", m.match, { m.V{} }, "")
 
-checkerr("rule 'A' is not a pattern", m.P, { A = {} })
-checkerr("rule <a function> is not a pattern", m.P, { [print] = {} })
+checkerr("rule 'A' is not a pattern", m.P, { m.P(1), A = {} })
+checkerr("grammar has no initial rule", m.P, { [print] = {} })
 
--- test for non-pattern as arguments to pattern functions
+
+-- tests for non-pattern as arguments to pattern functions
 
 p = { ('a' * m.V(1))^-1 } * m.P'b' * { 'a' * m.V(2); m.V(1)^-1 }
 assert(m.match(p, "aaabaac") == 7)
 
+p = m.P'abc' * 2 * -5 * true * 'de'  -- mix of numbers and strings and booleans
+
+assert(p:match("abc01de") == 8)
+assert(p:match("abc01de3456") == nil)
+
+p = 'abc' * (2 * (-5 * (true * m.P'de')))
+
+assert(p:match("abc01de") == 8)
+assert(p:match("abc01de3456") == nil)
+
+p = { m.V(2), m.P"abc" } *
+     (m.P{ "xx", xx = m.P"xx" } + { "x", x = m.P"a" * m.V"x" + "" })
+assert(p:match("abcaaaxx") == 7)
+assert(p:match("abcxx") == 6)
+
+
 -- a large table capture
 t = m.match(m.Ct(m.C('a')^0), string.rep("a", 10000))
 assert(#t == 10000 and t[1] == 'a' and t[#t] == 'a')
-
-
--- test for errors
-local function checkerr (msg, ...)
-  assert(m.match({ m.P(msg) + 1 * m.V(1) }, select(2, pcall(...))))
-end
-
-checkerr("rule '1' is left recursive", m.match, { m.V(1) * 'a' }, "a")
-checkerr("rule '1' outside a grammar", m.match, m.V(1), "")
-checkerr("rule 'hiii' outside a grammar", m.match, m.V('hiii'), "")
-checkerr("rule 'hiii' is not defined", m.match, { m.V('hiii') }, "")
-checkerr("rule <a table> is not defined", m.match, { m.V({}) }, "")
 
 print('+')
 
@@ -421,6 +453,13 @@ assert(m.match(m.Cs((#((#m.P"a")/"") * 1 + m.P(1)/".")^0), "aloal") == "a..a.")
 assert(m.match(m.Cs((- -m.P("a") * 1 + m.P(1)/".")^0), "aloal") == "a..a.")
 assert(m.match(m.Cs((-((-m.P"a")/"") * 1 + m.P(1)/".")^0), "aloal") == "a..a.")
 
+p = -m.P'a' * m.Cc(1) + -m.P'b' * m.Cc(2) + -m.P'c' * m.Cc(3)
+assert(p:match('a') == 2 and p:match('') == 1 and p:match('b') == 1)
+
+p = -m.P'a' * m.Cc(10) + #m.P'a' * m.Cc(20)
+assert(p:match('a') == 20 and p:match('') == 10 and p:match('b') == 10)
+
+
 
 -- look-behind predicate
 assert(not m.match(m.B'a', 'a'))
@@ -428,6 +467,9 @@ assert(m.match(1 * m.B'a', 'a') == 2)
 assert(not m.match(m.B(1), 'a'))
 assert(m.match(1 * m.B(1), 'a') == 2)
 assert(m.match(-m.B(1), 'a') == 1)
+assert(m.match(m.B(250), string.rep('a', 250)) == nil)
+assert(m.match(250 * m.B(250), string.rep('a', 250)) == 251)
+assert(not pcall(m.B, 260))
 
 B = #letter * -m.B(letter) + -letter * m.B(letter)
 x = m.Ct({ (B * m.Cp())^-1 * (1 * m.V(1) + m.P(true)) })
@@ -438,14 +480,18 @@ checkeq(m.match(x, 'aloalo'), {1,7})
 
 assert(m.match(B, "a") == 1)
 assert(m.match(1 * B, "a") == 2)
-assert(not m.B(-letter):match(""))
+assert(not m.B(1 - letter):match(""))
 assert((-m.B(letter)):match("") == 1)
 
 assert((4 * m.B(letter, 4)):match("aaaaaaaa") == 5)
-assert(not (4 * m.B(letter, 5)):match("aaaaaaaa"))
-assert((4 * -m.B(letter, 5)):match("aaaaaaaa") == 5)
+assert(not (4 * m.B(#letter * 5)):match("aaaaaaaa"))
+assert((4 * -m.B(#letter * 5)):match("aaaaaaaa") == 5)
 
-assert((3 * m.B(m.C(1))):match("12345") == 4)
+-- look-behind with grammars
+assert(m.match('a' * m.B{'x', x = m.P(3)},  'aaa') == nil)
+assert(m.match('aa' * m.B{'x', x = m.P('aaa')},  'aaaa') == nil)
+assert(m.match('aaa' * m.B{'x', x = m.P('aaa')},  'aaaaa') == 4)
+
 
 
 -- bug in 0.9
@@ -458,8 +504,10 @@ assert(m.match(#m.S'567' * 1, "6") == 2)
 
 -- tests for Tail Calls
 
+p = m.P{ 'a' * m.V(1) + '' }
+assert(p:match(string.rep('a', 1000)) == 1001)
+
 -- create a grammar for a simple DFA for even number of 0s and 1s
--- finished in '$':
 --
 --  ->1 <---0---> 2
 --    ^           ^
@@ -472,16 +520,17 @@ assert(m.match(#m.S'567' * 1, "6") == 2)
 -- this grammar should keep no backtracking information
 
 p = m.P{
-  [1] = '0' * m.V(2) + '1' * m.V(3) + '$',
+  [1] = '0' * m.V(2) + '1' * m.V(3) + -1,
   [2] = '0' * m.V(1) + '1' * m.V(4),
   [3] = '0' * m.V(4) + '1' * m.V(1),
   [4] = '0' * m.V(3) + '1' * m.V(2),
 }
 
-assert(p:match(string.rep("00", 10000) .. "$"))
-assert(p:match(string.rep("01", 10000) .. "$"))
-assert(p:match(string.rep("011", 10000) .. "$"))
-assert(not p:match(string.rep("011", 10001) .. "$"))
+assert(p:match(string.rep("00", 10000)))
+assert(p:match(string.rep("01", 10000)))
+assert(p:match(string.rep("011", 10000)))
+assert(not p:match(string.rep("011", 10000) .. "1"))
+assert(not p:match(string.rep("011", 10001)))
 
 
 -- this grammar does need backtracking info.
@@ -490,8 +539,9 @@ p = m.P{ '0' * m.V(1) + '0' }
 assert(not pcall(m.match, p, string.rep("0", lim)))
 m.setmaxstack(2*lim)
 assert(not pcall(m.match, p, string.rep("0", lim)))
-m.setmaxstack(2*lim + 2)
+m.setmaxstack(2*lim + 4)
 assert(pcall(m.match, p, string.rep("0", lim)))
+m.setmaxstack(5)   -- restore original limit
 
 -- tests for optional start position
 assert(m.match("a", "abc", 1))
@@ -703,7 +753,17 @@ p = m.Cf(m.Ct(true) * m.Cg(m.C(m.R"az"^1) * "=" * m.C(m.R"az"^1) * ";")^0,
          rawset)
 t = p:match("a=b;c=du;xux=yuy;")
 checkeq(t, {a="b", c="du", xux="yuy"})
- 
+
+
+-- errors in accumulator capture
+
+-- very long match (forces fold to be a pair open-close) producing with
+-- no initial capture
+assert(not pcall(m.match, m.Cf(m.P(500), print), string.rep('a', 600)))
+
+-- nested capture produces no initial value
+assert(not pcall(m.match, m.Cf(m.P(1) / {}, print), "alo"))
+
 
 -- tests for loop checker
 
@@ -735,28 +795,45 @@ local function find (p, s)
 end
 
 
-local function badgrammar (g, exp)
-  local err, msg = pcall(m.P, g)
-  assert(not err)
-  if exp then assert(find(exp, msg)) end
+local function badgrammar (g, expected)
+  local stat, msg = pcall(m.P, g)
+  assert(not stat)
+  if expected then assert(find(expected, msg)) end
 end
 
 badgrammar({[1] = m.V(1)}, "rule '1'")
 badgrammar({[1] = m.V(2)}, "rule '2'")   -- invalid non-terminal
 badgrammar({[1] = m.V"x"}, "rule 'x'")   -- invalid non-terminal
-badgrammar({[1] = m.V{}}, "rule <a table>")   -- invalid non-terminal
-badgrammar({[1] = #m.P("a") * m.V(1)}, "rule '1'")
-badgrammar({[1] = -m.P("a") * m.V(1)}, "rule '1'")
-badgrammar({[1] = -1 * m.V(1)}, "rule '1'")
-badgrammar({[1] = 1 * m.V(2), [2] = m.V(2)}, "rule '2'")
-badgrammar({[1] = m.P(0), [2] = 1 * m.V(1)^0}, "loop in rule '2'")
-badgrammar({ m.V(2), m.V(3)^0, m.P"" }, "rule '2'")
-badgrammar({ m.V(2) * m.V(3)^0, m.V(3)^0, m.P"" }, "rule '1'")
-badgrammar({ #(m.V(1) * 'a') }, "rule '1'")
-badgrammar({ -(m.V(1) * 'a') }, "rule '1'")
+badgrammar({[1] = m.V{}}, "rule '(a table)'")   -- invalid non-terminal
+badgrammar({[1] = #m.P("a") * m.V(1)}, "rule '1'")  -- left-recursive
+badgrammar({[1] = -m.P("a") * m.V(1)}, "rule '1'")  -- left-recursive
+badgrammar({[1] = -1 * m.V(1)}, "rule '1'")  -- left-recursive
+badgrammar({[1] = -1 + m.V(1)}, "rule '1'")  -- left-recursive
+badgrammar({[1] = 1 * m.V(2), [2] = m.V(2)}, "rule '2'")  -- left-recursive
+badgrammar({[1] = 1 * m.V(2)^0, [2] = m.P(0)}, "rule '1'")  -- inf. loop
+badgrammar({ m.V(2), m.V(3)^0, m.P"" }, "rule '2'")  -- inf. loop
+badgrammar({ m.V(2) * m.V(3)^0, m.V(3)^0, m.P"" }, "rule '1'")  -- inf. loop
+badgrammar({"x", x = #(m.V(1) * 'a') }, "rule '1'")  -- inf. loop
+badgrammar({ -(m.V(1) * 'a') }, "rule '1'")  -- inf. loop
+badgrammar({"x", x = m.P'a'^-1 * m.V"x"}, "rule 'x'")  -- left recursive
+badgrammar({"x", x = m.P'a' * m.V"y"^1, y = #m.P(1)}, "rule 'x'")
 
 assert(m.match({'a' * -m.V(1)}, "aaa") == 2)
 assert(m.match({'a' * -m.V(1)}, "aaaa") == nil)
+
+
+-- good x bad grammars
+m.P{ ('a' * m.V(1))^-1 }
+m.P{ -('a' * m.V(1)) }
+m.P{ ('abc' * m.V(1))^-1 }
+m.P{ -('abc' * m.V(1)) }
+badgrammar{ #m.P('abc') * m.V(1) }
+badgrammar{ -('a' + m.V(1)) }
+m.P{ #('a' * m.V(1)) }
+badgrammar{ #('a' + m.V(1)) }
+m.P{ m.B{ m.P'abc' } * 'a' * m.V(1) }
+badgrammar{ m.B{ m.P'abc' } * m.V(1) }
+badgrammar{ ('a' + m.P'bcd')^-1 * m.V(1) }
 
 
 -- simple tests for maximum sizes:
@@ -873,12 +950,44 @@ assert(p:match'abbbc-bc ddaa' == 'BC')
 c = '[' * m.Cg(m.P'='^0, "init") * '[' *
     { m.Cmt(']' * m.C(m.P'='^0) * ']' * m.Cb("init"), function (_, _, s1, s2)
                                                return s1 == s2 end)
-       + 1 * m.V(1) } / function () end
+       + 1 * m.V(1) } / 0
 
 assert(c:match'[==[]]====]]]]==]===[]' == 18)
 assert(c:match'[[]=]====]=]]]==]===[]' == 14)
 assert(not c:match'[[]=]====]=]=]==]===[]')
 
+
+-- old bug: optimization of concat with fail removed match-time capture
+p = m.Cmt(0, function (s) p = s end) * m.P(false)
+assert(not p:match('alo'))
+assert(p == 'alo')
+
+
+-- ensure that failed match-time captures are not kept on Lua stack
+do
+  local t = {__mode = "kv"}; setmetatable(t,t)
+  local c = 0
+
+  local function foo (s,i)
+    collectgarbage();
+    assert(next(t) == "__mode" and next(t, "__mode") == nil)
+    local x = {}
+    t[x] = true
+    c = c + 1
+    return i, x
+  end
+
+  local p = m.P{ m.Cmt(0, foo) * m.P(false) + m.P(1) * m.V(1) + m.P"" }
+  p:match(string.rep('1', 10))
+  assert(c == 11)
+end
+
+p = (m.P(function () return true, "a" end) * 'a'
+  + m.P(function (s, i) return i, "aa", 20 end) * 'b'
+  + m.P(function (s,i) if i <= #s then return i + 1, "aaa" end end))^0
+
+t = {p:match('abacc')}
+checkeq(t, {'a', 'aa', 20, 'a', 'aaa', 'aaa'})
 
 
 -------------------------------------------------------------------
@@ -962,9 +1071,16 @@ assert(match("01234567890123456789", "[0-9]^3+") == 19)
 
 
 assert(match("01234567890123456789", "({....}{...}) -> '%2%1'") == "4560123")
-t = match("0123456789", "{.}*->{}")
+t = match("0123456789", "{| {.}* |}")
 checkeq(t, {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"})
-assert(match("012345", "( (..) -> '%0%0' ) -> {}")[1] == "0101")
+assert(match("012345", "{| (..) -> '%0%0' |}")[1] == "0101")
+
+assert(match("abcdef", "( {.} {.} {.} {.} {.} ) -> 3") == "c")
+assert(match("abcdef", "( {:x: . :} {.} {.} {.} {.} ) -> 3") == "d")
+assert(match("abcdef", "( {:x: . :} {.} {.} {.} {.} ) -> 0") == 6)
+
+assert(not match("abcdef", "{:x: ({.} {.} {.}) -> 2 :} =x"))
+assert(match("abcbef", "{:x: ({.} {.} {.}) -> 2 :} =x"))
 
 eqcharset(compile"[]]", "]")
 eqcharset(compile"[][]", m.S"[]")
@@ -987,14 +1103,16 @@ eqcharset(compile"[^]['\"]", any - m.S[[]['"]])
 
 -- tests for comments in 're'
 e = compile[[
-A <- B   -- \t	\n %nl .<> <- -> --
-B <- 'x'  --]]
+A  <- _B   -- \t \n %nl .<> <- -> --
+_B <- 'x'  --]]
 assert(e:match'xy' == 2)
 
 -- tests for 're' with pre-definitions
-defs = {digits = m.R"09", letters = m.R"az"}
+defs = {digits = m.R"09", letters = m.R"az", _=m.P"__"}
 e = compile("%letters (%letters / %digits)*", defs)
 assert(e:match"x123" == 5)
+e = compile("%_", defs)
+assert(e:match"__" == 3)
 
 e = compile([[
   S <- A+
@@ -1026,9 +1144,21 @@ assert(not c:match'[[]=]====]=]=]==]===[]')
 assert(re.find("hi alalo", "{:x:..:} =x") == 4)
 assert(re.find("hi alalo", "{:x:..:} =x", 4) == 4)
 assert(not re.find("hi alalo", "{:x:..:} =x", 5))
-assert(re.find("hi alalo", "'al'", 5) == 6)
+assert(re.find("hi alalo", "{'al'}", 5) == 6)
 assert(re.find("hi aloalolo", "{:x:..:} =x") == 8)
 assert(re.find("alo alohi x x", "{:word:%w+:}%W*(=word)!%w") == 11)
+
+-- re.find discards any captures
+local a,b,c = re.find("alo", "{.}{'o'}")
+assert(a == 2 and b == 3 and c == nil)
+
+local function match (s,p)
+  local i,e = re.find(s,p)
+  if i then return s:sub(i, e) end
+end
+assert(match("alo alo", '[a-z]+') == "alo")
+assert(match("alo alo", '{:x: [a-z]+ :} =x') == nil)
+assert(match("alo alo", "{:x: [a-z]+ :} ' ' =x") == "alo alo")
 
 assert(re.gsub("alo alo", "[abc]", "x") == "xlo xlo")
 assert(re.gsub("alo alo", "%w+", ".") == ". .")
@@ -1048,7 +1178,7 @@ function addtag (s, i, t, tag) t.tag = tag; return i, t end
 
 c = re.compile([[
   doc <- block !.
-  block <- (start (block / { [^<]+ })* -> {} end?) => addtag
+  block <- (start {| (block / { [^<]+ })* |} end?) => addtag
   start <- '<' {:tag: [a-z]+ :} '>'
   end <- '</' { =tag } '>'
 ]], {addtag = addtag})
@@ -1057,9 +1187,6 @@ x = c:match[[
 <x>hi<b>hello</b>but<b>totheend</x>]]
 checkeq(x, {tag='x', 'hi', {tag = 'b', 'hello'}, 'but',
                      {'totheend'}})
-
-assert(not pcall(compile, "x <- 'a'  x <- 'b'"))
-assert(not pcall(compile, "'x' -> x", {x = 3}))
 
 
 -- tests for look-ahead captures
@@ -1082,22 +1209,23 @@ assert(x:match("hello aloaLo aloalo xuxu") == "aloalo")
 
 
 p = re.compile[[
-  block <- ({:ident:' '*:} line
-           ((=ident !' ' line) / &(=ident ' ') block)*) -> {}
+  block <- {| {:ident:space*:} line
+           ((=ident !space line) / &(=ident space) block)* |}
   line <- {[^%nl]*} %nl
+  space <- '_'     -- should be ' ', but '_' is simpler for editors
 ]]
 
 t= p:match[[
 1
-  1.1
-  1.2
-    1.2.1
-    
+__1.1
+__1.2
+____1.2.1
+____
 2
-  2.1
+__2.1
 ]]
-checkeq(t, {"1", {"1.1", "1.2", {"1.2.1", "", ident = "    "}, ident = "  "},
-            "2", {"2.1", ident = "  "}, ident = ""})
+checkeq(t, {"1", {"1.1", "1.2", {"1.2.1", "", ident = "____"}, ident = "__"},
+            "2", {"2.1", ident = "__"}, ident = ""})
 
 
 -- nested grammars
@@ -1116,15 +1244,15 @@ assert(not p:match'aaabbba')
 t = {re.match("abc", "{:S <- {:.:} {S} / '':}")}
 checkeq(t, {"a", "bc", "b", "c", "c", ""})
 
-t = re.match("1234", "({:a:.:} {:b:.:} {:c:.{.}:}) -> {}")
+t = re.match("1234", "{| {:a:.:} {:b:.:} {:c:.{.}:} |}")
 checkeq(t, {a="1", b="2", c="4"})
-t = re.match("1234", "({:a:.:} {:b:{.}{.}:} {:c:{.}:}) -> {}")
+t = re.match("1234", "{|{:a:.:} {:b:{.}{.}:} {:c:{.}:}|}")
 checkeq(t, {a="1", b="2", c="4"})
-t = re.match("12345", "({:.:} {:b:{.}{.}:} {:{.}{.}:}) -> {}")
+t = re.match("12345", "{| {:.:} {:b:{.}{.}:} {:{.}{.}:} |}")
 checkeq(t, {"1", b="2", "4", "5"})
-t = re.match("12345", "({:.:} {:{:b:{.}{.}:}:} {:{.}{.}:}) -> {}")
+t = re.match("12345", "{| {:.:} {:{:b:{.}{.}:}:} {:{.}{.}:} |}")
 checkeq(t, {"1", "23", "4", "5"})
-t = re.match("12345", "({:.:} {{:b:{.}{.}:}} {:{.}{.}:}) -> {}")
+t = re.match("12345", "{| {:.:} {{:b:{.}{.}:}} {:{.}{.}:} |}")
 checkeq(t, {"1", "23", "4", "5"})
 
 
@@ -1134,7 +1262,7 @@ assert(os.setlocale("C") == "C")
 function eqlpeggsub (p1, p2)
   local s1 = cs2str(re.compile(p1))
   local s2 = string.gsub(allchar, "[^" .. p2 .. "]", "")
-if s1 ~= s2 then print(s1,s2) end
+  -- if s1 ~= s2 then print(#s1,#s2) end
   assert(s1 == s2)
 end
 
@@ -1147,6 +1275,7 @@ eqlpeggsub("%p", "%p")
 eqlpeggsub("%d", "%d")
 eqlpeggsub("%x", "%x")
 eqlpeggsub("%s", "%s")
+eqlpeggsub("%c", "%c")
 
 eqlpeggsub("%W", "%W")
 eqlpeggsub("%A", "%A")
@@ -1156,6 +1285,7 @@ eqlpeggsub("%P", "%P")
 eqlpeggsub("%D", "%D")
 eqlpeggsub("%X", "%X")
 eqlpeggsub("%S", "%S")
+eqlpeggsub("%C", "%C")
 
 eqlpeggsub("[%w]", "%w")
 eqlpeggsub("[_%w]", "_%w")
@@ -1182,6 +1312,21 @@ assert(p:match"add(mul(a,b), apply(f,x))" == "a * b + f(x)")
 rev = re.compile[[ R <- (!.) -> '' / ({.} R) -> '%2%1']]
 
 assert(rev:match"0123456789" == "9876543210")
+
+
+-- testing error messages in re
+
+local function errmsg (p, err)
+  local s, msg = pcall(re.compile, p)
+  assert(not s and string.find(msg, err))
+end
+
+errmsg('aaaa', "rule 'aaaa'")
+errmsg('a', 'outside')
+errmsg('b <- a', 'undefined')
+errmsg("x <- 'a'  x <- 'b'", 'already defined')
+errmsg("'a' -", "near '-'")
+
 
 print"OK"
 
