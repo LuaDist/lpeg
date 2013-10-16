@@ -1,6 +1,6 @@
 #!/usr/bin/env lua5.1
 
--- $Id: test.lua,v 1.97 2013/03/27 15:50:30 roberto Exp $
+-- $Id: test.lua,v 1.101 2013/04/12 16:30:33 roberto Exp $
 
 -- require"strict"    -- just to be pedantic
 
@@ -265,6 +265,13 @@ assert(not m.match(("aa" * m.P"bc"^-1 + "aab") * "e", "aabe"))
 
 assert(m.match("alo" * (m.P"\n" + -1), "alo") == 4)
 
+
+-- bug in 0.12 (rc1)
+assert(m.match((m.P"\128\187\191" + m.S"abc")^0, "\128\187\191") == 4)
+
+assert(m.match(m.S"\0\128\255\127"^0, string.rep("\0\128\255\127", 10)) ==
+    4*10 + 1)
+
 -- optimizations with optional parts
 assert(m.match(("ab" * -m.P"c")^-1, "abc") == 1)
 assert(m.match(("ab" * #m.P"c")^-1, "abd") == 1)
@@ -350,6 +357,18 @@ checkerr("undefined in given grammar", m.match, { m.V{} }, "")
 
 checkerr("rule 'A' is not a pattern", m.P, { m.P(1), A = {} })
 checkerr("grammar has no initial rule", m.P, { [print] = {} })
+
+-- grammar with a long call chain before left recursion
+p = {'a',
+  a = m.V'b' * m.V'c' * m.V'd' * m.V'a',
+  b = m.V'c',
+  c = m.V'd',
+  d = m.V'e',
+  e = m.V'f',
+  f = m.V'g',
+  g = m.P''
+}
+checkerr("rule 'a' may be left recursive", m.match, p, "a")
 
 
 -- tests for non-pattern as arguments to pattern functions
@@ -541,6 +560,12 @@ m.setmaxstack(2*lim)
 assert(not pcall(m.match, p, string.rep("0", lim)))
 m.setmaxstack(2*lim + 4)
 assert(pcall(m.match, p, string.rep("0", lim)))
+
+-- this repetition should not need stack space (only the call does)
+p = m.P{ ('a' * m.V(1))^0 * 'b' + 'c' }
+m.setmaxstack(200)
+assert(p:match(string.rep('a', 180) .. 'c' .. string.rep('b', 180)) == 362)
+
 m.setmaxstack(5)   -- restore original limit
 
 -- tests for optional start position
@@ -587,7 +612,7 @@ assert(m.match(m.Cmt(m.Cg(m.Carg(3), "a") *
 
 t = {}
 s = ""
-p = function (s1, i) assert(s == s1); t[#t + 1] = i; return nil end
+p = m.P(function (s1, i) assert(s == s1); t[#t + 1] = i; return nil end) * false
 s = "hi, this is a test"
 assert(m.match(((p - m.P(-1)) + 2)^0, s) == string.len(s) + 1)
 assert(#t == string.len(s)/2 and t[1] == 1 and t[2] == 3)
@@ -609,7 +634,7 @@ assert(#t == string.len(s) and t[1] == 2 and t[2] == 3)
 
 t = {}
 p = m.P(function (s1, i) assert(s == s1); t[#t + 1] = i;
-                         return i <= s1:len() and i + 1 end)
+                         return i <= s1:len() and i end) * 1
 s = "hi, this is a test"
 assert(m.match(p^0, s) == string.len(s) + 1)
 assert(#t == string.len(s) + 1 and t[1] == 1 and t[2] == 2)
@@ -634,8 +659,8 @@ for i = 1, string.len(s) + 1 do
   assert(m.match(function (_, _) return i end, s) == i)
 end
 
-p = (m.P(function (s, i) return i%2 == 0 and i + 1 end)
-  +  m.P(function (s, i) return i%2 ~= 0 and i + 2 <= s:len() and i + 3 end))^0
+p = (m.P(function (s, i) return i%2 == 0 and i end) * 1
+  +  m.P(function (s, i) return i%2 ~= 0 and i + 2 <= s:len() and i end) * 3)^0
   * -1
 assert(p:match(string.rep('a', 14000)))
 
@@ -895,6 +920,12 @@ checkeq(t, {'ab',
 
 -- tests for match-time captures
 
+p = m.P'a' * (function (s, i) return (s:sub(i, i) == 'b') and i + 1 end)
+  + 'acd'
+
+assert(p:match('abc') == 3)
+assert(p:match('acd') == 4)
+
 local function id (s, i, ...)
   return true, ...
 end
@@ -915,12 +946,12 @@ x = {(m.Cmt(1, id)^0):match(string.rep('a', 500))}
 assert(#x == 500)
 
 local function id(s, i, x)
-  if x == 'a' then return i + 1, 1, 3, 7
+  if x == 'a' then return i, 1, 3, 7
   else return nil, 2, 4, 6, 8
   end   
 end     
 
-p = ((m.P(id) + m.Cmt(2, id)  + m.Cmt(1, id)))^0
+p = ((m.P(id) * 1 + m.Cmt(2, id) * 1  + m.Cmt(1, id) * 1))^0
 assert(table.concat{p:match('abababab')} == string.rep('137', 4))
 
 local function ref (s, i, x)
@@ -946,6 +977,28 @@ p = (any - p)^0 * p * any^0 * -1
 
 assert(p:match'abbbc-bc ddaa' == 'BC')
 
+do   -- match-time captures cannot be optimized away
+  local touch = 0
+  f = m.P(function () touch = touch + 1; return true end)
+
+  local function check(n) n = n or 1; assert(touch == n); touch = 0 end
+
+  assert(m.match(f * false + 'b', 'a') == nil); check()
+  assert(m.match(f * false + 'b', '') == nil); check()
+  assert(m.match( (f * 'a')^0 * 'b', 'b') == 2); check()
+  assert(m.match( (f * 'a')^0 * 'b', '') == nil); check()
+  assert(m.match( (f * 'a')^-1 * 'b', 'b') == 2); check()
+  assert(m.match( (f * 'a')^-1 * 'b', '') == nil); check()
+  assert(m.match( ('b' + f * 'a')^-1 * 'b', '') == nil); check()
+  assert(m.match( (m.P'b'^-1 * f * 'a')^-1 * 'b', '') == nil); check()
+  assert(m.match( (-m.P(1) * m.P'b'^-1 * f * 'a')^-1 * 'b', '') == nil);
+     check()
+  assert(m.match( (f * 'a' + 'b')^-1 * 'b', '') == nil); check()
+  assert(m.match(f * 'a' + f * 'b', 'b') == 2); check(2)
+  assert(m.match(f * 'a' + f * 'b', 'a') == 2); check(1)
+  assert(m.match(-f * 'a' + 'b', 'b') == 2); check(1)
+  assert(m.match(-f * 'a' + 'b', '') == nil); check(1)
+end
 
 c = '[' * m.Cg(m.P'='^0, "init") * '[' *
     { m.Cmt(']' * m.C(m.P'='^0) * ']' * m.Cb("init"), function (_, _, s1, s2)
@@ -984,7 +1037,7 @@ end
 
 p = (m.P(function () return true, "a" end) * 'a'
   + m.P(function (s, i) return i, "aa", 20 end) * 'b'
-  + m.P(function (s,i) if i <= #s then return i + 1, "aaa" end end))^0
+  + m.P(function (s,i) if i <= #s then return i, "aaa" end end) * 1)^0
 
 t = {p:match('abacc')}
 checkeq(t, {'a', 'aa', 20, 'a', 'aaa', 'aaa'})

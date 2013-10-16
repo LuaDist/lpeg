@@ -1,5 +1,5 @@
 /*
-** $Id: lptypes.h,v 1.4 2013/03/21 20:25:12 roberto Exp $
+** $Id: lptypes.h,v 1.8 2013/04/12 16:26:38 roberto Exp $
 ** LPeg - PEG pattern matching for Lua
 ** Copyright 2007, Lua.org & PUC-Rio  (see 'lpeg.html' for license)
 ** written by Roberto Ierusalimschy
@@ -14,11 +14,12 @@
 #endif
 
 #include <assert.h>
+#include <limits.h>
 
 #include "lua.h"
 
 
-#define VERSION         "0.11"
+#define VERSION         "0.12"
 
 
 #define PATTERN_T	"lpeg-pattern"
@@ -89,13 +90,15 @@ typedef unsigned char byte;
 
 
 
-typedef byte Charset[CHARSETSIZE];
+typedef struct Charset {
+  byte cs[CHARSETSIZE];
+} Charset;
 
 
 
 #define loopset(v,b)    { int v; for (v = 0; v < CHARSETSIZE; v++) {b;} }
 
-/* access to charset and literal strings */
+/* access to charset */
 #define treebuffer(t)      ((byte *)((t) + 1))
 
 /* number of slots needed for 'n' bytes */

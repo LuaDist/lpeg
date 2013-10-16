@@ -1,13 +1,16 @@
 /*
-** $Id: lpprint.c,v 1.4 2013/03/24 13:51:12 roberto Exp $
+** $Id: lpprint.c,v 1.7 2013/04/12 16:29:49 roberto Exp $
 ** Copyright 2007, Lua.org & PUC-Rio  (see 'lpeg.html' for license)
 */
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
+
 
 #include "lptypes.h"
 #include "lpprint.h"
+#include "lpcode.h"
 
 
 #if defined(LPEG_DEBUG)
@@ -17,13 +20,6 @@
 ** Printing patterns (for debugging)
 ** =======================================================
 */
-
-static int sizei (const Instruction *i) {
-  switch((Opcode)i->i.code) {
-    case ISet: case ITestSet: case ISpan: return CHARSETINSTSIZE;
-    default: return 1;
-  }
-}
 
 
 void printcharset (const byte *st) {
@@ -52,7 +48,7 @@ static void printcapkind (int kind) {
 
 
 static void printjmp (const Instruction *op, const Instruction *p) {
-  printf("-> %d", (int)(p + p->i.offset - op));
+  printf("-> %d", (int)(p + (p + 1)->offset - op));
 }
 
 
@@ -78,12 +74,12 @@ static void printinst (const Instruction *op, const Instruction *p) {
     }
     case IFullCapture: {
       printcapkind(getkind(p));
-      printf(" (size = %d)  (idx = %d)", getoff(p), p->i.offset);
+      printf(" (size = %d)  (idx = %d)", getoff(p), p->i.key);
       break;
     }
     case IOpenCapture: {
       printcapkind(getkind(p));
-      printf(" (idx = %d)", p->i.offset);
+      printf(" (idx = %d)", p->i.key);
       break;
     }
     case ISet: {
@@ -91,7 +87,7 @@ static void printinst (const Instruction *op, const Instruction *p) {
       break;
     }
     case ITestSet: {
-      printcharset((p+1)->buff); printjmp(op, p);
+      printcharset((p+2)->buff); printjmp(op, p);
       break;
     }
     case ISpan: {
@@ -99,7 +95,7 @@ static void printinst (const Instruction *op, const Instruction *p) {
       break;
     }
     case IOpenCall: {
-      printf("-> %d", p->i.offset);
+      printf("-> %d", (p + 1)->offset);
       break;
     }
     case IBehind: {

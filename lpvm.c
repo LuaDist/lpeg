@@ -1,9 +1,11 @@
 /*
-** $Id: lpvm.c,v 1.3 2013/03/21 20:25:12 roberto Exp $
+** $Id: lpvm.c,v 1.5 2013/04/12 16:29:49 roberto Exp $
 ** Copyright 2007, Lua.org & PUC-Rio  (see 'lpeg.html' for license)
 */
 
+#include <limits.h>
 #include <string.h>
+
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -19,6 +21,8 @@
 #define INITBACK	100
 #endif
 
+
+#define getoffset(p)	(((p) + 1)->offset)
 
 static const Instruction giveup = {{IGiveup, 0, 0}};
 
@@ -181,8 +185,8 @@ const char *match (lua_State *L, const char *o, const char *s, const char *e,
         continue;
       }
       case ITestAny: {
-        if (s < e) p++;
-        else p += p->i.offset;
+        if (s < e) p += 2;
+        else p += getoffset(p);
         continue;
       }
       case IChar: {
@@ -191,8 +195,8 @@ const char *match (lua_State *L, const char *o, const char *s, const char *e,
         continue;
       }
       case ITestChar: {
-        if ((byte)*s == p->i.aux && s < e) p++;
-        else p += p->i.offset;
+        if ((byte)*s == p->i.aux && s < e) p += 2;
+        else p += getoffset(p);
         continue;
       }
       case ISet: {
@@ -204,9 +208,9 @@ const char *match (lua_State *L, const char *o, const char *s, const char *e,
       }
       case ITestSet: {
         int c = (byte)*s;
-        if (testchar((p+1)->buff, c) && s < e)
-          p += CHARSETINSTSIZE;
-        else p += p->i.offset;
+        if (testchar((p + 2)->buff, c) && s < e)
+          p += 1 + CHARSETINSTSIZE;
+        else p += getoffset(p);
         continue;
       }
       case IBehind: {
@@ -224,46 +228,46 @@ const char *match (lua_State *L, const char *o, const char *s, const char *e,
         continue;
       }
       case IJmp: {
-        p += p->i.offset;
+        p += getoffset(p);
         continue;
       }
       case IChoice: {
         if (stack == stacklimit)
           stack = doublestack(L, &stacklimit, ptop);
-        stack->p = p + p->i.offset;
+        stack->p = p + getoffset(p);
         stack->s = s;
         stack->caplevel = captop;
         stack++;
-        p++;
+        p += 2;
         continue;
       }
       case ICall: {
         if (stack == stacklimit)
           stack = doublestack(L, &stacklimit, ptop);
         stack->s = NULL;
-        stack->p = p + 1;  /* save return address */
+        stack->p = p + 2;  /* save return address */
         stack++;
-        p += p->i.offset;
+        p += getoffset(p);
         continue;
       }
       case ICommit: {
         assert(stack > getstackbase(L, ptop) && (stack - 1)->s != NULL);
         stack--;
-        p += p->i.offset;
+        p += getoffset(p);
         continue;
       }
       case IPartialCommit: {
         assert(stack > getstackbase(L, ptop) && (stack - 1)->s != NULL);
         (stack - 1)->s = s;
         (stack - 1)->caplevel = captop;
-        p += p->i.offset;
+        p += getoffset(p);
         continue;
       }
       case IBackCommit: {
         assert(stack > getstackbase(L, ptop) && (stack - 1)->s != NULL);
         s = (--stack)->s;
         captop = stack->caplevel;
-        p += p->i.offset;
+        p += getoffset(p);
         continue;
       }
       case IFailTwice:
@@ -332,7 +336,7 @@ const char *match (lua_State *L, const char *o, const char *s, const char *e,
         capture[captop].s = s - getoff(p);
         /* goto pushcapture; */
       pushcapture: {
-        capture[captop].idx = p->i.offset;
+        capture[captop].idx = p->i.key;
         capture[captop].kind = getkind(p);
         if (++captop >= capsize) {
           capture = doublecap(L, capture, captop, ptop);

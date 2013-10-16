@@ -10,7 +10,7 @@
 </head>
 <body>
 
-<!-- $Id: lpeg.html,v 1.69 2013/03/27 19:01:24 roberto Exp $ -->
+<!-- $Id: lpeg.html,v 1.71 2013/04/11 19:17:41 roberto Exp $ -->
 
 <div id="container">
 	
@@ -22,7 +22,7 @@
   </div>
   <div id="product_name"><big><strong>LPeg</strong></big></div>
   <div id="product_description">
-     Parsing Expression Grammars For Lua, version 0.11
+     Parsing Expression Grammars For Lua, version 0.12
   </div>
 </div> <!-- id="product" -->
 
@@ -615,17 +615,14 @@ The following table summarizes the basic captures:
   <td><code>string</code>, with some marks replaced by captures
       of <code>patt</code></td></tr>
 <tr><td><a href="#cap-num"><code>patt / number</code></a></td>
-  <td>the n-th capture from <code>patt</code>,
-or no value if <code>number</code> is zero</td></tr>
+  <td>the n-th value captured by <code>patt</code>,
+or no value when <code>number</code> is zero.</td></tr>
 <tr><td><a href="#cap-query"><code>patt / table</code></a></td>
   <td><code>table[c]</code>, where <code>c</code> is the (first)
       capture of <code>patt</code></td></tr>
 <tr><td><a href="#cap-func"><code>patt / function</code></a></td>
   <td>the returns of <code>function</code> applied to the captures
       of <code>patt</code></td></tr>
-<tr><td><a href="#cap-num"><code>patt / number</code></a></td>
-  <td>the n-th value captured by <code>patt</code>,
-or no value when <code>number</code> is zero.</td></tr>
 <tr><td><a href="#matchtime"><code>lpeg.Cmt(patt, function)</code></a></td>
   <td>the returns of <code>function</code> applied to the captures
       of <code>patt</code>; the application is done at match time</td></tr>
@@ -1378,7 +1375,7 @@ and the new term for each repetition.
 <h2><a name="download"></a>Download</h2>
 
 <p>LPeg 
-<a href="http://www.inf.puc-rio.br/~roberto/lpeg/lpeg-0.11.tar.gz">source code</a>.</p>
+<a href="http://www.inf.puc-rio.br/~roberto/lpeg/lpeg-0.12.tar.gz">source code</a>.</p>
 
 
 <h2><a name="license">License</a></h2>
@@ -1422,7 +1419,7 @@ THE SOFTWARE.
 
 <div id="about">
 <p><small>
-$Id: lpeg.html,v 1.69 2013/03/27 19:01:24 roberto Exp $
+$Id: lpeg.html,v 1.71 2013/04/11 19:17:41 roberto Exp $
 </small></p>
 </div> <!-- id="about" -->
 

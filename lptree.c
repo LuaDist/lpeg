@@ -1,10 +1,12 @@
 /*
-** $Id: lptree.c,v 1.6 2013/03/25 17:21:58 roberto Exp $
+** $Id: lptree.c,v 1.10 2013/04/12 16:30:33 roberto Exp $
 ** Copyright 2013, Lua.org & PUC-Rio  (see 'lpeg.html' for license)
 */
 
-#include <string.h>
 #include <ctype.h>
+#include <limits.h>
+#include <string.h>
+
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -114,13 +116,12 @@ static void finalfix (lua_State *L, int postable, TTree *g, TTree *t) {
       break;
   }
   switch (numsiblings[t->tag]) {
-    case 0: break;
     case 1: /* finalfix(L, postable, g, sib1(t)); */
       t = sib1(t); goto tailcall;
     case 2:
       finalfix(L, postable, g, sib1(t));
       t = sib2(t); goto tailcall;  /* finalfix(L, postable, g, sib2(t)); */
-    default: assert(0);
+    default: assert(numsiblings[t->tag] == 0); break;
   }
 }
 
@@ -238,11 +239,11 @@ static void fillseq (TTree *tree, int tag, int n, const char *s) {
   for (i = 0; i < n - 1; i++) {  /* initial n-1 copies of Seq tag; Seq ... */
     tree->tag = TSeq; tree->u.ps = 2;
     sib1(tree)->tag = tag;
-    sib1(tree)->u.n = s ? s[i] : 0;
+    sib1(tree)->u.n = s ? (byte)s[i] : 0;
     tree = sib2(tree);
   }
   tree->tag = tag;  /* last one does not need TSeq */
-  tree->u.n = s ? s[i] : 0;
+  tree->u.n = s ? (byte)s[i] : 0;
 }
 
 
@@ -401,13 +402,12 @@ static void correctkeys (TTree *tree, int n) {
     default: break;
   }
   switch (numsiblings[tree->tag]) {
-    case 0: break;
     case 1:  /* correctkeys(sib1(tree), n); */
       tree = sib1(tree); goto tailcall;
     case 2:
       correctkeys(sib1(tree), n);
       tree = sib2(tree); goto tailcall;  /* correctkeys(sib2(tree), n); */
-    default: assert(0);
+    default: assert(numsiblings[tree->tag] == 0); break;
   }
 }
 
@@ -505,9 +505,9 @@ static int lp_choice (lua_State *L) {
   Charset st1, st2;
   TTree *t1 = getpatt(L, 1, NULL);
   TTree *t2 = getpatt(L, 2, NULL);
-  if (tocharset(t1, st1) && tocharset(t2, st2)) {
+  if (tocharset(t1, &st1) && tocharset(t2, &st2)) {
     TTree *t = newcharset(L);
-    loopset(i, treebuffer(t)[i] = st1[i] | st2[i]);
+    loopset(i, treebuffer(t)[i] = st1.cs[i] | st2.cs[i]);
   }
   else if (nofail(t1) || t2->tag == TFalse)
     lua_pushvalue(L, 1);  /* true / x => true, x / false => x */
@@ -582,9 +582,9 @@ static int lp_sub (lua_State *L) {
   int s1, s2;
   TTree *t1 = getpatt(L, 1, &s1);
   TTree *t2 = getpatt(L, 2, &s2);
-  if (tocharset(t1, st1) && tocharset(t2, st2)) {
+  if (tocharset(t1, &st1) && tocharset(t2, &st2)) {
     TTree *t = newcharset(L);
-    loopset(i, treebuffer(t)[i] = st1[i] & ~st2[i]);
+    loopset(i, treebuffer(t)[i] = st1.cs[i] & ~st2.cs[i]);
   }
   else {
     TTree *tree = newtree(L, 2 + s1 + s2);
@@ -900,25 +900,26 @@ static int checkloops (TTree *tree) {
     return 0;  /* sub-grammars already checked */
   else {
     switch (numsiblings[tree->tag]) {
-      case 0: return 0;
       case 1:  /* return checkloops(sib1(tree)); */
         tree = sib1(tree); goto tailcall;
       case 2:
         if (checkloops(sib1(tree))) return 1;
         /* else return checkloops(sib2(tree)); */
         tree = sib2(tree); goto tailcall;
-      default: assert(0); return 0;
+      default: assert(numsiblings[tree->tag] == 0); return 0;
     }
   }
 }
 
 
 static int verifyerror (lua_State *L, int *passed, int npassed) {
-  int i;
-  for (i = npassed - 2; i >= 0; i--) {  /* search for a repetition */
-    if (passed[i] == passed[npassed - 1]) {
-      lua_rawgeti(L, -1, passed[i]);  /* get rule's key */
-      return luaL_error(L, "rule '%s' may be left recursive", val2str(L, -1));
+  int i, j;
+  for (i = npassed - 1; i >= 0; i--) {  /* search for a repetition */
+    for (j = i - 1; j >= 0; j--) {
+      if (passed[i] == passed[j]) {
+        lua_rawgeti(L, -1, passed[i]);  /* get rule's key */
+        return luaL_error(L, "rule '%s' may be left recursive", val2str(L, -1));
+      }
     }
   }
   return luaL_error(L, "too many left calls in grammar");
