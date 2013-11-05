@@ -1,0 +1,35 @@
+type = "x86_64"
+desc = "Parsing Expression Grammars For Lua"
+version = "0.10.2"
+depends = {
+[[lua >= 5.1]],
+}
+
+url = "http://www.inf.puc-rio.br/~roberto/lpeg/lpeg.html"
+license = "MIT/X11"
+files = {
+Test = {
+[[share/lpeg/test/test.lua]],
+}
+,
+Documentation = {
+[[share/lpeg/doc/lpeg.html]],
+[[share/lpeg/doc/re.html]],
+[[share/lpeg/doc/lpeg-128.gif]],
+}
+,
+Data = {
+[[share/lpeg/HISTORY]],
+}
+,
+Runtime = {
+[[lib/lua/lpeg.so]],
+[[lib/lua/re.lua]],
+}
+,
+}
+
+arch = "Debian"
+maintainer = "Peter Kapec"
+name = "lpeg"
+author = "Roberto Ierusalimschy"
