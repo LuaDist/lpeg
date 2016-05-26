@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <string.h>
+#include <stdlib.h>
 
 
 #include "lua.h"
@@ -1147,9 +1148,10 @@ static size_t initposition (lua_State *L, size_t len) {
 ** Main match function
 */
 static int lp_match (lua_State *L) {
-  Capture capture[INITCAPSIZE];
+  Capture *capture = calloc(INITCAPSIZE, sizeof(Capture));
   const char *r;
   size_t l;
+  int rv;
   Pattern *p = (getpatt(L, 1, NULL), getpattern(L, 1));
   Instruction *code = (p->code != NULL) ? p->code : prepcompile(L, p, 1);
   const char *s = luaL_checklstring(L, SUBJIDX, &l);
@@ -1163,7 +1165,9 @@ static int lp_match (lua_State *L) {
     lua_pushnil(L);
     return 1;
   }
-  return getcaptures(L, s, r, ptop);
+  rv = getcaptures(L, s, r, ptop);
+  free(capture);
+  return rv;
 }
 
 
