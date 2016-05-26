@@ -1,5 +1,5 @@
 /*
-** $Id: lpcode.h,v 1.5 2013/04/04 21:24:45 roberto Exp $
+** $Id: lpcode.h,v 1.7 2015/06/12 18:24:45 roberto Exp $
 */
 
 #if !defined(lpcode_h)
@@ -17,14 +17,22 @@ int fixedlenx (TTree *tree, int count, int len);
 int hascaptures (TTree *tree);
 int lp_gc (lua_State *L);
 Instruction *compile (lua_State *L, Pattern *p);
-void reallocprog (lua_State *L, Pattern *p, int nsize);
+void realloccode (lua_State *L, Pattern *p, int nsize);
 int sizei (const Instruction *i);
 
 
 #define PEnullable      0
 #define PEnofail        1
 
+/*
+** nofail(t) implies that 't' cannot fail with any input
+*/
 #define nofail(t)	checkaux(t, PEnofail)
+
+/*
+** (not nullable(t)) implies 't' cannot match without consuming
+** something
+*/
 #define nullable(t)	checkaux(t, PEnullable)
 
 #define fixedlen(t)     fixedlenx(t, 0, 0)
