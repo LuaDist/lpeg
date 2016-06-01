@@ -148,6 +148,7 @@ static int removedyncap (lua_State *L, Capture *capture,
 const char *match (lua_State *L, const char *o, const char *s, const char *e,
                    Instruction *op, Capture *capture, int ptop) {
   Stack *stackbase = calloc(INITBACK, sizeof(Stack));
+  assert(stackbase);
   Stack *stacklimit = stackbase + INITBACK;
   Stack *stack = stackbase;  /* point to first empty slot in stack */
   int capsize = INITCAPSIZE;

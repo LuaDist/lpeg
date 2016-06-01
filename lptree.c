@@ -1149,6 +1149,7 @@ static size_t initposition (lua_State *L, size_t len) {
 */
 static int lp_match (lua_State *L) {
   Capture *capture = calloc(INITCAPSIZE, sizeof(Capture));
+  assert(capture);
   const char *r;
   size_t l;
   int rv;
