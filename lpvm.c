@@ -1,10 +1,11 @@
 /*
-** $Id: lpvm.c,v 1.5 2013/04/12 16:29:49 roberto Exp $
+** $Id: lpvm.c,v 1.6 2015/09/28 17:01:25 roberto Exp $
 ** Copyright 2007, Lua.org & PUC-Rio  (see 'lpeg.html' for license)
 */
 
 #include <limits.h>
 #include <string.h>
+#include <stdlib.h>
 
 
 #include "lua.h"
@@ -18,7 +19,7 @@
 
 /* initial size for call/backtrack stack */
 #if !defined(INITBACK)
-#define INITBACK	100
+#define INITBACK	MAXBACK
 #endif
 
 
@@ -70,7 +71,7 @@ static Stack *doublestack (lua_State *L, Stack **stacklimit, int ptop) {
   max = lua_tointeger(L, -1);  /* maximum allowed size */
   lua_pop(L, 1);
   if (n >= max)  /* already at maximum size? */
-    luaL_error(L, "too many pending calls/choices");
+    luaL_error(L, "backtrack stack overflow (current limit is %d)", max);
   newn = 2 * n;  /* new size */
   if (newn > max) newn = max;
   newstack = (Stack *)lua_newuserdata(L, newn * sizeof(Stack));
@@ -146,7 +147,8 @@ static int removedyncap (lua_State *L, Capture *capture,
 */
 const char *match (lua_State *L, const char *o, const char *s, const char *e,
                    Instruction *op, Capture *capture, int ptop) {
-  Stack stackbase[INITBACK];
+  Stack *stackbase = calloc(INITBACK, sizeof(Stack));
+  assert(stackbase);
   Stack *stacklimit = stackbase + INITBACK;
   Stack *stack = stackbase;  /* point to first empty slot in stack */
   int capsize = INITCAPSIZE;
@@ -168,10 +170,12 @@ const char *match (lua_State *L, const char *o, const char *s, const char *e,
         assert(stack == getstackbase(L, ptop) + 1);
         capture[captop].kind = Cclose;
         capture[captop].s = NULL;
+        free(stackbase);
         return s;
       }
       case IGiveup: {
         assert(stack == getstackbase(L, ptop));
+        free(stackbase);
         return NULL;
       }
       case IRet: {
@@ -345,7 +349,7 @@ const char *match (lua_State *L, const char *o, const char *s, const char *e,
         p++;
         continue;
       }
-      default: assert(0); return NULL;
+      default: assert(0); free(stackbase); return NULL;
     }
   }
 }
