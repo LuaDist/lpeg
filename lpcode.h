@@ -16,7 +16,7 @@ int checkaux (TTree *tree, int pred);
 int fixedlenx (TTree *tree, int count, int len);
 int hascaptures (TTree *tree);
 int lp_gc (lua_State *L);
-Instruction *compile (lua_State *L, Pattern *p);
+Instruction *lpeg_compile (lua_State *L, Pattern *p);
 void realloccode (lua_State *L, Pattern *p, int nsize);
 int sizei (const Instruction *i);
 

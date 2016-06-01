@@ -970,7 +970,7 @@ static void peephole (CompileState *compst) {
 /*
 ** Compile a pattern
 */
-Instruction *compile (lua_State *L, Pattern *p) {
+Instruction *lpeg_compile (lua_State *L, Pattern *p) {
   CompileState compst;
   compst.p = p;  compst.ncode = 0;  compst.L = L;
   realloccode(L, p, 2);  /* minimum initial size */

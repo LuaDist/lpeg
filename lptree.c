@@ -1097,7 +1097,7 @@ static Instruction *prepcompile (lua_State *L, Pattern *p, int idx) {
   lua_getuservalue(L, idx);  /* push 'ktable' (may be used by 'finalfix') */
   finalfix(L, 0, NULL, p->tree);
   lua_pop(L, 1);  /* remove 'ktable' */
-  return compile(L, p);
+  return lpeg_compile(L, p);
 }
 
 
